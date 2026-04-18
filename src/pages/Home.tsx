@@ -5,7 +5,7 @@ import {
   type ChangeEvent,
   type CSSProperties,
 } from "react";
-import { apiGet, apiPost, apiPostJob } from "../api/client";
+import { apiGet, apiPost, apiPostFormData, apiPostJob, backendFetch } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
 import type { VideoHit } from "../types";
@@ -41,7 +41,9 @@ function formatVideoDuration(v: VideoHit): string {
 }
 
 async function blobUrlToDataUrl(url: string): Promise<string> {
-  const r = await fetch(url, { credentials: "include" });
+  const r = /^https?:\/\//i.test(url)
+    ? await fetch(url, { credentials: "include" })
+    : await backendFetch(url);
   if (!r.ok) throw new Error("Không tải được logo đã lưu");
   const blob = await r.blob();
   return new Promise((resolve, reject) => {
@@ -203,18 +205,15 @@ export default function Home() {
     }
     const fd = new FormData();
     fd.append("file", file);
-    const r = await fetch("/api/user/logo", {
-      method: "POST",
-      body: fd,
-      credentials: "include",
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      alert((j as { error?: string }).error || "Tải logo thất bại");
+    try {
+      const j = await apiPostFormData<{ ok?: boolean; logo_url?: string; error?: string }>(
+        "/api/user/logo",
+        fd,
+      );
+      if (j.logo_url) setSavedLogoUrl(j.logo_url);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Tải logo thất bại");
       return;
-    }
-    if ((j as { logo_url?: string }).logo_url) {
-      setSavedLogoUrl((j as { logo_url: string }).logo_url);
     }
     const reader = new FileReader();
     reader.onload = () => setLocalLogoDataUrl(reader.result as string);

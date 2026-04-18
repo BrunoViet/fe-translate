@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { apiGet, apiPost } from "../api/client";
+import { apiGet, apiPost, apiPostFormData, backendFetch } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
 
@@ -36,13 +36,6 @@ type OrderDetail = {
   account_holder: string;
   has_proof?: boolean;
 };
-
-function errFromBody(data: unknown): string {
-  const d = data as { detail?: unknown; error?: string };
-  if (typeof d.error === "string") return d.error;
-  if (typeof d.detail === "string") return d.detail;
-  return "";
-}
 
 export default function Payment() {
   const { t } = useI18n();
@@ -131,9 +124,7 @@ export default function Payment() {
     if (!orderCode) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/payment/check/${encodeURIComponent(orderCode)}`, {
-          credentials: "include",
-        });
+        const r = await backendFetch(`/api/payment/check/${encodeURIComponent(orderCode)}`);
         if (r.status === 404) {
           setOrderCode(null);
           setQr("");
@@ -231,15 +222,10 @@ export default function Payment() {
     try {
       const form = new FormData();
       if (proofFile) form.append("proof", proofFile);
-      const res = await fetch(`/api/payment/confirm/${encodeURIComponent(orderCode)}`, {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(errFromBody(data) || res.statusText || "Lỗi");
-      }
+      await apiPostFormData<{ ok?: boolean }>(
+        `/api/payment/confirm/${encodeURIComponent(orderCode)}`,
+        form,
+      );
       setStatus("waiting_approval");
       clearProof();
       void refreshAll();

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiPost } from "../api/client";
 
 const PRESETS = [
   "Cách tạo tài khoản và đăng nhập?",
@@ -39,13 +40,9 @@ export default function SupportChatK2V() {
     setInput("");
     setLoading(true);
     try {
-      const res = await fetch("/api/support/chat", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: t }),
+      const r = await apiPost<{ ok?: boolean; reply?: string }>("/api/support/chat", {
+        message: t,
       });
-      const r = (await res.json()) as { ok?: boolean; reply?: string };
       const reply = r.reply || "Không có phản hồi.";
       setMsgs((m) => [...m, { role: "assistant", text: reply }]);
     } catch (e: unknown) {

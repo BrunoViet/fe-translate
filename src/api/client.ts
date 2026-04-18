@@ -48,8 +48,15 @@ function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+/** Các path do FastAPI phục vụ (API + static mount) — phải đi qua pool backend khi FE deploy. */
 function isBackendPath(path: string): boolean {
-  return path.startsWith("/api/") || path.startsWith("/admin/api/");
+  return (
+    path.startsWith("/api/") ||
+    path.startsWith("/admin/api/") ||
+    path.startsWith("/user_logos/") ||
+    path.startsWith("/output/") ||
+    path.startsWith("/preview_cache/")
+  );
 }
 
 function isPrimaryServerPreferredPath(path: string): boolean {
@@ -58,6 +65,80 @@ function isPrimaryServerPreferredPath(path: string): boolean {
     path.startsWith("/api/user/") ||
     path === "/api/guest/bootstrap"
   );
+}
+
+/** Nạp tiền / VietQR — luôn xử lý tuần tự 1 máy (sticky sau create), lỗi mới failover. */
+function isPaymentApiPath(path: string): boolean {
+  return path.startsWith("/api/payment/");
+}
+
+const PAYMENT_STICKY_KEY = "k2v_payment_backend_url";
+
+/** Gọi khi đăng xuất để lần sau không còn trỏ nhầm máy cũ. */
+export function clearPaymentBackendSticky(): void {
+  try {
+    sessionStorage.removeItem(PAYMENT_STICKY_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function getPaymentStickyBase(): string | null {
+  try {
+    const raw = sessionStorage.getItem(PAYMENT_STICKY_KEY)?.trim();
+    if (!raw) return null;
+    return normalizeBaseUrl(raw);
+  } catch {
+    return null;
+  }
+}
+
+function onPaymentResponseOk(baseUrl: string, path: string, init: RequestInit): void {
+  if (!baseUrl || !isPaymentApiPath(path)) return;
+  const method = (init.method || "GET").toUpperCase();
+  if (method === "POST" && path.startsWith("/api/payment/create")) {
+    try {
+      sessionStorage.setItem(PAYMENT_STICKY_KEY, baseUrl);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  if (method === "POST" && path.includes("/api/payment/cancel")) {
+    clearPaymentBackendSticky();
+  }
+}
+
+async function buildOrderedBackendBases(path: string, preferredBaseUrl: string | null): Promise<string[]> {
+  const pool = await getServerPoolUrls();
+  const pref = normalizeBaseUrl(preferredBaseUrl || "");
+
+  if (isPaymentApiPath(path)) {
+    const sticky = getPaymentStickyBase();
+    const chain: string[] = [];
+    const seen = new Set<string>();
+    const push = (b: string) => {
+      if (!b || seen.has(b)) return;
+      seen.add(b);
+      chain.push(b);
+    };
+    if (sticky && pool.includes(sticky)) push(sticky);
+    if (pref && pool.includes(pref)) push(pref);
+    for (const b of pool) push(b);
+    return chain.length > 0 ? chain : [""];
+  }
+
+  const orderedBases: string[] = [];
+  if (pref) orderedBases.push(pref);
+  if (isPrimaryServerPreferredPath(path)) {
+    const primaryBase = pool[0] ?? "";
+    if (primaryBase && !orderedBases.includes(primaryBase)) orderedBases.push(primaryBase);
+  }
+  for (const base of pool) {
+    if (!orderedBases.includes(base)) orderedBases.push(base);
+  }
+  if (orderedBases.length === 0) orderedBases.push("");
+  return orderedBases;
 }
 
 function loadFailingBackendsFromStorage(): void {
@@ -195,33 +276,23 @@ async function fetchWithBackendFallback(
     return fetch(path, init);
   }
 
-  const pool = await getServerPoolUrls();
-  const orderedBases: string[] = [];
-  const preferredBase = normalizeBaseUrl(options?.preferredBaseUrl || "");
-  if (preferredBase) orderedBases.push(preferredBase);
-  if (isPrimaryServerPreferredPath(path)) {
-    const primaryBase = pool[0] ?? "";
-    if (primaryBase && !orderedBases.includes(primaryBase)) {
-      orderedBases.push(primaryBase);
-    }
-  }
-  for (const base of pool) {
-    if (!orderedBases.includes(base)) orderedBases.push(base);
-  }
-  if (orderedBases.length === 0) orderedBases.push("");
+  const orderedBases = await buildOrderedBackendBases(path, options?.preferredBaseUrl ?? null);
 
   let lastError: Error | null = null;
   for (const baseUrl of orderedBases) {
     const target = buildTargetUrl(path, baseUrl || null);
     try {
       const response = await fetch(target, init);
+      if (baseUrl && response.ok) {
+        clearBackendFailure(baseUrl);
+        if (isPaymentApiPath(path)) {
+          onPaymentResponseOk(baseUrl, path, init);
+        }
+      }
       if (!response.ok && shouldRetryResponse(response)) {
         if (baseUrl) markBackendFailure(baseUrl);
         lastError = await parseErrorResponse(response);
         continue;
-      }
-      if (baseUrl && response.ok) {
-        clearBackendFailure(baseUrl);
       }
       return response;
     } catch (error) {
@@ -247,6 +318,12 @@ async function requestJson<T>(
 }
 
 async function getTranslationPreferredBackend(path: string): Promise<string | null> {
+  if (isPaymentApiPath(path)) {
+    const urls = await getServerPoolUrls();
+    const sticky = getPaymentStickyBase();
+    if (sticky && urls.includes(sticky)) return sticky;
+    return urls[0] ?? null;
+  }
   if (isPrimaryServerPreferredPath(path) || path !== "/api/translate/start") {
     const urls = await getServerPoolUrls();
     return urls[0] ?? null;
@@ -344,6 +421,35 @@ export async function apiPostJob<T>(path: string, body?: unknown): Promise<T> {
       headers: jsonHeaders,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     },
+    { preferredBaseUrl },
+  );
+}
+
+/** POST FormData tới backend trong pool — bắt buộc khi FE deploy (Vercel): không dùng fetch('/api/...') same-origin. */
+export async function apiPostFormData<T>(path: string, formData: FormData): Promise<T> {
+  const preferredBaseUrl = await getTranslationPreferredBackend(path);
+  const response = await fetchWithBackendFallback(
+    path,
+    {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    },
+    { preferredBaseUrl },
+  );
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+  if (response.status === 204) return {} as T;
+  return response.json() as Promise<T>;
+}
+
+/** fetch tới backend trong pool, trả Response thô (404, v.v.) — dùng cho poll không qua requestJson. */
+export async function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const preferredBaseUrl = await getTranslationPreferredBackend(path);
+  return fetchWithBackendFallback(
+    path,
+    { credentials: "include", ...init },
     { preferredBaseUrl },
   );
 }
