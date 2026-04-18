@@ -1,0 +1,68 @@
+export const en: Record<string, string> = {
+  "lang.vi": "Vietnamese",
+  "lang.en": "English",
+
+  "nav.find": "Find videos",
+  "nav.jobs": "Progress",
+  "nav.videos": "Finished videos",
+  "nav.payment": "Top up",
+  "nav.spin": "Spin wheel",
+  "nav.tasks": "Tasks",
+  "nav.transactions": "Transactions",
+  "nav.support": "Support",
+  "nav.account": "Account",
+  "nav.login": "Log in",
+  "nav.register": "Sign up",
+  "nav.logout": "Log out",
+  "nav.guestBalance": "Guest · {amount}₫",
+
+  "jobs.title": "Translation progress",
+  "jobs.introBefore": "Auto-refreshes every 5s. Finished jobs are not listed here — open ",
+  "jobs.introAfter": " (files expire after ~24h on the server).",
+  "jobs.refundNote":
+    "Cancel: if progress ≤50% you get a full refund of the charged fee; if >50% you get 50%. Automatic refunds for stuck jobs follow system rules (full charged amount).",
+  "jobs.colVideo": "Video",
+  "jobs.colStatus": "Status",
+  "jobs.colProgress": "Progress",
+  "jobs.colCost": "Cost",
+  "jobs.colActions": "Actions",
+  "jobs.empty": "No jobs yet.",
+  "jobs.download": "Download",
+  "jobs.downloadShort": "Get",
+  "jobs.deleteVideo": "Delete file",
+  "jobs.fileDeleted": "File removed",
+  "jobs.cancel": "Cancel",
+  "jobs.refundIfStuck": "Refund if stuck",
+  "jobs.confirmDelete": "Delete the rendered file from the server? This cannot be undone.",
+  "jobs.confirmRefundStuck":
+    "Use when the job is stuck or the server is unresponsive. A refund is only issued when the job has stopped updating for the required time. Continue?",
+  "jobs.refundResult": "Refunded {amount}₫. Balance: {balance}₫",
+
+  "jobStatus.queued": "Queued",
+  "jobStatus.processing": "Processing",
+  "jobStatus.downloading": "Downloading",
+  "jobStatus.extracting": "Extracting audio",
+  "jobStatus.transcribing": "Transcribing",
+  "jobStatus.translating": "Translating",
+  "jobStatus.tts": "Text-to-speech",
+  "jobStatus.syncing": "Syncing",
+  "jobStatus.muxing": "Muxing",
+  "jobStatus.completed": "Completed",
+  "jobStatus.error": "Error",
+  "jobStatus.cancelled": "Cancelled",
+  "jobStatus.interrupted": "Interrupted",
+
+  "common.loading": "Loading…",
+  "common.error": "Error",
+
+  "home.title": "Find videos",
+  "home.subtitle": "Bilibili / Douyin — pick a video and start translation (charged by duration).",
+  "home.searchPlaceholder": "Keywords…",
+  "home.search": "Search",
+  "home.searching": "Searching…",
+
+  "payment.title": "Top up (VietQR)",
+  "payment.intro":
+    "Pick an amount, create a code, scan the bank QR. You can attach a receipt, then tap Paid. Re-open pending orders from the history table below.",
+};
+
