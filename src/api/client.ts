@@ -5,15 +5,10 @@ const GITHUB_SERVER_LIST_API_URL =
   "https://api.github.com/repos/KNDARK/ip-translate-server/contents/ip.txt?ref=main";
 const TRANSLATE_LOAD_PATH = "/api/translate/load";
 const PAYMENT_LOAD_PATH = "/api/payment/load";
-const PREFERRED_API_BASE_KEY = "k2v_preferred_api_base";
-// Luôn lấy ip.txt mới nhất trước mỗi API call (không cache pool trong RAM).
-// Chế độ chặt chẽ: KHÔNG dùng pool cũ khi GitHub fetch fail (tránh gọi nhầm IP cũ).
-// Nếu cần fallback “last known good”, bật lại logic bằng cách tự sửa code.
-const LAST_GOOD_POOL_KEY = "k2v_last_good_backend_pool";
+// Luôn lấy ip.txt mới nhất trước mỗi API call (không lưu cache IP cũ).
 // Lỗi hạ tầng/proxy (Cloudflare 52x/53x), timeout, rate limit... nên failover sang backend khác.
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const BACKEND_FAILURE_TTL_MS = 10 * 60_000;
-const FAILING_BACKENDS_STORAGE_KEY = "k2v_failing_backends";
 const failingBackends = new Map<string, number>();
 
 type ServerLoad = {
@@ -70,36 +65,7 @@ function isPrimaryServerPreferredPath(path: string): boolean {
   );
 }
 
-function loadFailingBackendsFromStorage(): void {
-  try {
-    const raw = sessionStorage.getItem(FAILING_BACKENDS_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, number>;
-    const now = Date.now();
-    for (const [baseUrl, failedUntil] of Object.entries(parsed)) {
-      if (typeof failedUntil === "number" && failedUntil > now) {
-        failingBackends.set(baseUrl, failedUntil);
-      }
-    }
-  } catch {
-    // ignore storage issues
-  }
-}
-
-function persistFailingBackends(): void {
-  try {
-    const now = Date.now();
-    const payload: Record<string, number> = {};
-    for (const [baseUrl, failedUntil] of failingBackends.entries()) {
-      if (failedUntil > now) payload[baseUrl] = failedUntil;
-    }
-    sessionStorage.setItem(FAILING_BACKENDS_STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // ignore storage issues
-  }
-}
-
-loadFailingBackendsFromStorage();
+// Không lưu failure cache xuống storage để tránh dính URL cũ giữa các phiên.
 
 function parseServerPoolUrls(text: string): string[] {
   return text
@@ -113,28 +79,7 @@ function parseServerPoolUrls(text: string): string[] {
     .filter((value): value is string => Boolean(value));
 }
 
-function loadLastGoodPool(): string[] {
-  try {
-    const raw = localStorage.getItem(LAST_GOOD_POOL_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((x) => (typeof x === "string" ? normalizeBaseUrl(x) : null))
-      .filter((x): x is string => Boolean(x));
-  } catch {
-    return [];
-  }
-}
-
-function saveLastGoodPool(urls: string[]): void {
-  try {
-    const uniq = Array.from(new Set(urls)).slice(0, 30);
-    if (uniq.length > 0) localStorage.setItem(LAST_GOOD_POOL_KEY, JSON.stringify(uniq));
-  } catch {
-    // ignore storage issues
-  }
-}
+// Không lưu "last known good pool" để tránh dùng lại IP cũ.
 
 function pruneFailingBackendsAgainstPool(pool: string[]): void {
   try {
@@ -146,22 +91,13 @@ function pruneFailingBackendsAgainstPool(pool: string[]): void {
         changed = true;
       }
     }
-    if (changed) persistFailingBackends();
+    void changed;
   } catch {
     // ignore
   }
 }
 
-function clearStickyApiBaseIfNotInPool(pool: string[]): void {
-  try {
-    const sticky = getStickyApiBase();
-    if (sticky && pool.length > 0 && !pool.includes(sticky)) {
-      sessionStorage.removeItem(PREFERRED_API_BASE_KEY);
-    }
-  } catch {
-    // ignore
-  }
-}
+// Không dùng sticky base URL để tránh dính tunnel cũ.
 
 async function fetchServerListText(): Promise<string> {
   const apiUrl = new URL(GITHUB_SERVER_LIST_API_URL);
@@ -235,53 +171,18 @@ async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
       if (failedUntil > now) return false;
       if (failedUntil > 0) {
         failingBackends.delete(url);
-        persistFailingBackends();
       }
       return true;
     });
     const out = filtered.length > 0 ? filtered : Array.from(new Set(urls));
-    // vẫn lưu để debug/khôi phục thủ công nếu cần, nhưng KHÔNG dùng làm fallback tự động
-    saveLastGoodPool(out);
     pruneFailingBackendsAgainstPool(out);
-    clearStickyApiBaseIfNotInPool(out);
     return out;
   } catch {
     return [];
   }
 }
 
-function isStickyTranslatePath(path: string): boolean {
-  return (
-    path === "/api/translate/status" ||
-    path.startsWith("/api/translate/cancel/") ||
-    path.startsWith("/api/translate/reconcile/") ||
-    path === "/api/video/delete"
-  );
-}
-
-function getStickyApiBase(): string | null {
-  try {
-    const raw = sessionStorage.getItem(PREFERRED_API_BASE_KEY);
-    if (!raw) return null;
-    return normalizeBaseUrl(JSON.parse(raw) as string);
-  } catch {
-    return null;
-  }
-}
-
-/** Gọi sau khi POST /api/translate/start trả về api_base_url — ưu tiên cùng máy cho tiến trình / xóa video. */
-export function setPreferredApiBaseFromResponse(url: string | null | undefined): void {
-  try {
-    if (!url || !String(url).trim()) {
-      sessionStorage.removeItem(PREFERRED_API_BASE_KEY);
-      return;
-    }
-    const n = normalizeBaseUrl(String(url));
-    if (n) sessionStorage.setItem(PREFERRED_API_BASE_KEY, JSON.stringify(n));
-  } catch {
-    // ignore
-  }
-}
+// Đã bỏ sticky api base URL (không lưu URL/tunnel cũ vào storage).
 
 function joinUrl(baseUrl: string, path: string): string {
   if (isAbsoluteHttpUrl(path)) return path;
@@ -308,13 +209,10 @@ function shouldRetryResponse(response: Response): boolean {
 
 function markBackendFailure(baseUrl: string): void {
   failingBackends.set(baseUrl, Date.now() + BACKEND_FAILURE_TTL_MS);
-  persistFailingBackends();
 }
 
 function clearBackendFailure(baseUrl: string): void {
-  if (failingBackends.delete(baseUrl)) {
-    persistFailingBackends();
-  }
+  failingBackends.delete(baseUrl);
 }
 
 async function fetchWithBackendFallback(
@@ -337,18 +235,8 @@ async function fetchWithBackendFallback(
   }
   const orderedBases: string[] = [];
   const preferredBase = normalizeBaseUrl(options?.preferredBaseUrl || "");
-  // Nếu preferredBase là IP/tunnel cũ không còn trong pool mới, bỏ qua để tránh call sai trước.
-  if (preferredBase) {
-    if (pool.length === 0 || pool.includes(preferredBase)) {
-      orderedBases.push(preferredBase);
-    } else {
-      try {
-        sessionStorage.removeItem(PREFERRED_API_BASE_KEY);
-      } catch {
-        // ignore
-      }
-    }
-  }
+  // Không dùng sticky/preferredBase để tránh dính tunnel/IP cũ.
+  if (preferredBase && pool.length > 0 && pool.includes(preferredBase)) orderedBases.push(preferredBase);
   if (isPrimaryServerPreferredPath(path)) {
     const primaryBase = pool[0] ?? "";
     if (primaryBase && !orderedBases.includes(primaryBase)) {
@@ -480,14 +368,6 @@ async function getTranslationPreferredBackend(path: string): Promise<string | nu
     const urls = await getServerPoolUrls(true);
     return urls[0] ?? null;
   }
-  if (isStickyTranslatePath(path)) {
-    const sticky = getStickyApiBase();
-    const urls = await getServerPoolUrls(true);
-    if (sticky) {
-      if (urls.length === 0 || urls.includes(sticky)) return sticky;
-    }
-    return urls[0] ?? null;
-  }
   if (isPrimaryServerPreferredPath(path)) {
     const urls = await getServerPoolUrls(true);
     return urls[0] ?? null;
@@ -558,10 +438,5 @@ export async function apiPostJob<T>(path: string, body?: unknown): Promise<T> {
     throw await parseErrorResponse(response);
   }
   if (response.status === 204) return {} as T;
-  const data = (await response.json()) as T;
-  if (path === "/api/translate/start" && data && typeof data === "object") {
-    const u = (data as { api_base_url?: string }).api_base_url;
-    if (typeof u === "string") setPreferredApiBaseFromResponse(u);
-  }
-  return data;
+  return (await response.json()) as T;
 }
