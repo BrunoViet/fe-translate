@@ -3,7 +3,7 @@ import { NavLink, Outlet, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
 import { useToast } from "../context/ToastContext";
-import { apiPost } from "../api/client";
+import { apiPost, invalidateBackendPoolCache } from "../api/client";
 import Footer from "./Footer";
 import NotificationBell from "./NotificationBell";
 import CompletionSuccessModal from "./CompletionSuccessModal";
@@ -46,7 +46,22 @@ export default function Layout() {
   }, [user]);
 
   useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        invalidateBackendPoolCache();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pageshow", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pageshow", onVis);
+    };
+  }, []);
+
+  useEffect(() => {
     const onFocus = () => {
+      invalidateBackendPoolCache();
       void refresh();
       void refreshGuest();
     };

@@ -4,6 +4,11 @@ const RAW_SERVER_LIST_URL =
 const GITHUB_SERVER_LIST_API_URL =
   "https://api.github.com/repos/KNDARK/ip-translate-server/contents/ip.txt?ref=main";
 const TRANSLATE_LOAD_PATH = "/api/translate/load";
+const PAYMENT_LOAD_PATH = "/api/payment/load";
+const PREFERRED_API_BASE_KEY = "k2v_preferred_api_base";
+/** 0 = luôn tải lại ip.txt từ GitHub (tránh cache URL backend cũ). */
+const SERVER_POOL_CACHE_MS = 0;
+let serverPoolCache: { urls: string[]; fetchedAt: number } | null = null;
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const BACKEND_FAILURE_TTL_MS = 10 * 60_000;
 const FAILING_BACKENDS_STORAGE_KEY = "k2v_failing_backends";
@@ -13,6 +18,9 @@ type ServerLoad = {
   active_job_count?: number;
   processing_job_count?: number;
   queued_job_count?: number;
+  accepting_new_jobs?: boolean;
+  max_concurrent_jobs_per_node?: number;
+  node_id?: string;
 };
 
 function detailMsg(data: unknown): string {
@@ -48,15 +56,8 @@ function isAbsoluteHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
-/** Các path do FastAPI phục vụ (API + static mount) — phải đi qua pool backend khi FE deploy. */
 function isBackendPath(path: string): boolean {
-  return (
-    path.startsWith("/api/") ||
-    path.startsWith("/admin/api/") ||
-    path.startsWith("/user_logos/") ||
-    path.startsWith("/output/") ||
-    path.startsWith("/preview_cache/")
-  );
+  return path.startsWith("/api/") || path.startsWith("/admin/api/");
 }
 
 function isPrimaryServerPreferredPath(path: string): boolean {
@@ -65,80 +66,6 @@ function isPrimaryServerPreferredPath(path: string): boolean {
     path.startsWith("/api/user/") ||
     path === "/api/guest/bootstrap"
   );
-}
-
-/** Nạp tiền / VietQR — luôn xử lý tuần tự 1 máy (sticky sau create), lỗi mới failover. */
-function isPaymentApiPath(path: string): boolean {
-  return path.startsWith("/api/payment/");
-}
-
-const PAYMENT_STICKY_KEY = "k2v_payment_backend_url";
-
-/** Gọi khi đăng xuất để lần sau không còn trỏ nhầm máy cũ. */
-export function clearPaymentBackendSticky(): void {
-  try {
-    sessionStorage.removeItem(PAYMENT_STICKY_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-function getPaymentStickyBase(): string | null {
-  try {
-    const raw = sessionStorage.getItem(PAYMENT_STICKY_KEY)?.trim();
-    if (!raw) return null;
-    return normalizeBaseUrl(raw);
-  } catch {
-    return null;
-  }
-}
-
-function onPaymentResponseOk(baseUrl: string, path: string, init: RequestInit): void {
-  if (!baseUrl || !isPaymentApiPath(path)) return;
-  const method = (init.method || "GET").toUpperCase();
-  if (method === "POST" && path.startsWith("/api/payment/create")) {
-    try {
-      sessionStorage.setItem(PAYMENT_STICKY_KEY, baseUrl);
-    } catch {
-      /* ignore */
-    }
-    return;
-  }
-  if (method === "POST" && path.includes("/api/payment/cancel")) {
-    clearPaymentBackendSticky();
-  }
-}
-
-async function buildOrderedBackendBases(path: string, preferredBaseUrl: string | null): Promise<string[]> {
-  const pool = await getServerPoolUrls();
-  const pref = normalizeBaseUrl(preferredBaseUrl || "");
-
-  if (isPaymentApiPath(path)) {
-    const sticky = getPaymentStickyBase();
-    const chain: string[] = [];
-    const seen = new Set<string>();
-    const push = (b: string) => {
-      if (!b || seen.has(b)) return;
-      seen.add(b);
-      chain.push(b);
-    };
-    if (sticky && pool.includes(sticky)) push(sticky);
-    if (pref && pool.includes(pref)) push(pref);
-    for (const b of pool) push(b);
-    return chain.length > 0 ? chain : [""];
-  }
-
-  const orderedBases: string[] = [];
-  if (pref) orderedBases.push(pref);
-  if (isPrimaryServerPreferredPath(path)) {
-    const primaryBase = pool[0] ?? "";
-    if (primaryBase && !orderedBases.includes(primaryBase)) orderedBases.push(primaryBase);
-  }
-  for (const base of pool) {
-    if (!orderedBases.includes(base)) orderedBases.push(base);
-  }
-  if (orderedBases.length === 0) orderedBases.push("");
-  return orderedBases;
 }
 
 function loadFailingBackendsFromStorage(): void {
@@ -215,7 +142,19 @@ async function fetchServerListText(): Promise<string> {
   return response.text();
 }
 
-async function getServerPoolUrls(): Promise<string[]> {
+export function invalidateBackendPoolCache(): void {
+  serverPoolCache = null;
+}
+
+export async function refreshBackendPoolFromGithub(): Promise<string[]> {
+  invalidateBackendPoolCache();
+  return getServerPoolUrls(true);
+}
+
+async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
+  if (!forceRefresh && serverPoolCache && Date.now() - serverPoolCache.fetchedAt < SERVER_POOL_CACHE_MS) {
+    return serverPoolCache.urls;
+  }
   try {
     const text = await fetchServerListText();
     const urls = parseServerPoolUrls(text);
@@ -229,9 +168,44 @@ async function getServerPoolUrls(): Promise<string[]> {
       }
       return true;
     });
-    return filtered.length > 0 ? filtered : Array.from(new Set(urls));
+    const out = filtered.length > 0 ? filtered : Array.from(new Set(urls));
+    serverPoolCache = { urls: out, fetchedAt: Date.now() };
+    return out;
   } catch {
     return [];
+  }
+}
+
+function isStickyTranslatePath(path: string): boolean {
+  return (
+    path === "/api/translate/status" ||
+    path.startsWith("/api/translate/cancel/") ||
+    path.startsWith("/api/translate/reconcile/") ||
+    path === "/api/video/delete"
+  );
+}
+
+function getStickyApiBase(): string | null {
+  try {
+    const raw = sessionStorage.getItem(PREFERRED_API_BASE_KEY);
+    if (!raw) return null;
+    return normalizeBaseUrl(JSON.parse(raw) as string);
+  } catch {
+    return null;
+  }
+}
+
+/** Gọi sau khi POST /api/translate/start trả về api_base_url — ưu tiên cùng máy cho tiến trình / xóa video. */
+export function setPreferredApiBaseFromResponse(url: string | null | undefined): void {
+  try {
+    if (!url || !String(url).trim()) {
+      sessionStorage.removeItem(PREFERRED_API_BASE_KEY);
+      return;
+    }
+    const n = normalizeBaseUrl(String(url));
+    if (n) sessionStorage.setItem(PREFERRED_API_BASE_KEY, JSON.stringify(n));
+  } catch {
+    // ignore
   }
 }
 
@@ -276,23 +250,33 @@ async function fetchWithBackendFallback(
     return fetch(path, init);
   }
 
-  const orderedBases = await buildOrderedBackendBases(path, options?.preferredBaseUrl ?? null);
+  const pool = await getServerPoolUrls();
+  const orderedBases: string[] = [];
+  const preferredBase = normalizeBaseUrl(options?.preferredBaseUrl || "");
+  if (preferredBase) orderedBases.push(preferredBase);
+  if (isPrimaryServerPreferredPath(path)) {
+    const primaryBase = pool[0] ?? "";
+    if (primaryBase && !orderedBases.includes(primaryBase)) {
+      orderedBases.push(primaryBase);
+    }
+  }
+  for (const base of pool) {
+    if (!orderedBases.includes(base)) orderedBases.push(base);
+  }
+  if (orderedBases.length === 0) orderedBases.push("");
 
   let lastError: Error | null = null;
   for (const baseUrl of orderedBases) {
     const target = buildTargetUrl(path, baseUrl || null);
     try {
       const response = await fetch(target, init);
-      if (baseUrl && response.ok) {
-        clearBackendFailure(baseUrl);
-        if (isPaymentApiPath(path)) {
-          onPaymentResponseOk(baseUrl, path, init);
-        }
-      }
       if (!response.ok && shouldRetryResponse(response)) {
         if (baseUrl) markBackendFailure(baseUrl);
         lastError = await parseErrorResponse(response);
         continue;
+      }
+      if (baseUrl && response.ok) {
+        clearBackendFailure(baseUrl);
       }
       return response;
     } catch (error) {
@@ -317,25 +301,14 @@ async function requestJson<T>(
   return response.json() as Promise<T>;
 }
 
-async function getTranslationPreferredBackend(path: string): Promise<string | null> {
-  if (isPaymentApiPath(path)) {
-    const urls = await getServerPoolUrls();
-    const sticky = getPaymentStickyBase();
-    if (sticky && urls.includes(sticky)) return sticky;
-    return urls[0] ?? null;
-  }
-  if (isPrimaryServerPreferredPath(path) || path !== "/api/translate/start") {
-    const urls = await getServerPoolUrls();
-    return urls[0] ?? null;
-  }
-
-  const urls = await getServerPoolUrls();
+async function getPreferredBackendByLoad(loadPath: string): Promise<string | null> {
+  const urls = await getServerPoolUrls(true);
   if (urls.length === 0) return null;
 
   const loads = await Promise.all(
     urls.map(async (baseUrl, index) => {
       try {
-        const response = await fetch(joinUrl(baseUrl, TRANSLATE_LOAD_PATH), {
+        const response = await fetch(joinUrl(baseUrl, loadPath), {
           credentials: "include",
           cache: "no-store",
         });
@@ -346,8 +319,9 @@ async function getTranslationPreferredBackend(path: string): Promise<string | nu
         const data = (await response.json()) as ServerLoad;
         const activeJobCount = Number(data.active_job_count ?? Number.POSITIVE_INFINITY);
         if (!Number.isFinite(activeJobCount)) return null;
+        const accepting = data.accepting_new_jobs !== false;
         clearBackendFailure(baseUrl);
-        return { baseUrl, index, activeJobCount };
+        return { baseUrl, index, activeJobCount, accepting };
       } catch {
         markBackendFailure(baseUrl);
         return null;
@@ -355,14 +329,46 @@ async function getTranslationPreferredBackend(path: string): Promise<string | nu
     }),
   );
 
-  const available = loads.filter((item): item is { baseUrl: string; index: number; activeJobCount: number } => Boolean(item));
+  const available = loads.filter(
+    (item): item is { baseUrl: string; index: number; activeJobCount: number; accepting: boolean } =>
+      Boolean(item),
+  );
   if (available.length === 0) return urls[0];
 
-  available.sort((a, b) => {
+  const open = available.filter((x) => x.accepting);
+  const pool = open.length > 0 ? open : available;
+  pool.sort((a, b) => {
     if (a.activeJobCount !== b.activeJobCount) return a.activeJobCount - b.activeJobCount;
     return a.index - b.index;
   });
-  return available[0]?.baseUrl ?? urls[0];
+  return pool[0]?.baseUrl ?? urls[0];
+}
+
+async function getTranslationPreferredBackend(path: string): Promise<string | null> {
+  if (path === "/api/translate/start") {
+    return getPreferredBackendByLoad(TRANSLATE_LOAD_PATH);
+  }
+  if (path === "/api/payment/create") {
+    return getPreferredBackendByLoad(PAYMENT_LOAD_PATH);
+  }
+  if (path.startsWith("/api/search")) {
+    const urls = await getServerPoolUrls(true);
+    return urls[0] ?? null;
+  }
+  if (isStickyTranslatePath(path)) {
+    const sticky = getStickyApiBase();
+    const urls = await getServerPoolUrls();
+    if (sticky) {
+      if (urls.length === 0 || urls.includes(sticky)) return sticky;
+    }
+    return urls[0] ?? null;
+  }
+  if (isPrimaryServerPreferredPath(path)) {
+    const urls = await getServerPoolUrls();
+    return urls[0] ?? null;
+  }
+  const urls = await getServerPoolUrls();
+  return urls[0] ?? null;
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
@@ -413,7 +419,7 @@ export async function apiDelete<T>(path: string): Promise<T> {
 
 export async function apiPostJob<T>(path: string, body?: unknown): Promise<T> {
   const preferredBaseUrl = await getTranslationPreferredBackend(path);
-  return requestJson<T>(
+  const response = await fetchWithBackendFallback(
     path,
     {
       method: "POST",
@@ -423,33 +429,14 @@ export async function apiPostJob<T>(path: string, body?: unknown): Promise<T> {
     },
     { preferredBaseUrl },
   );
-}
-
-/** POST FormData tới backend trong pool — bắt buộc khi FE deploy (Vercel): không dùng fetch('/api/...') same-origin. */
-export async function apiPostFormData<T>(path: string, formData: FormData): Promise<T> {
-  const preferredBaseUrl = await getTranslationPreferredBackend(path);
-  const response = await fetchWithBackendFallback(
-    path,
-    {
-      method: "POST",
-      credentials: "include",
-      body: formData,
-    },
-    { preferredBaseUrl },
-  );
   if (!response.ok) {
     throw await parseErrorResponse(response);
   }
   if (response.status === 204) return {} as T;
-  return response.json() as Promise<T>;
-}
-
-/** fetch tới backend trong pool, trả Response thô (404, v.v.) — dùng cho poll không qua requestJson. */
-export async function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const preferredBaseUrl = await getTranslationPreferredBackend(path);
-  return fetchWithBackendFallback(
-    path,
-    { credentials: "include", ...init },
-    { preferredBaseUrl },
-  );
+  const data = (await response.json()) as T;
+  if (path === "/api/translate/start" && data && typeof data === "object") {
+    const u = (data as { api_base_url?: string }).api_base_url;
+    if (typeof u === "string") setPreferredApiBaseFromResponse(u);
+  }
+  return data;
 }

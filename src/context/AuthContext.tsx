@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import type { User } from "../types";
-import { apiGet, apiPost, clearPaymentBackendSticky } from "../api/client";
+import { apiGet, apiPost } from "../api/client";
 
 type AuthCtx = {
   user: User | null;
@@ -78,7 +78,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await apiPost("/api/auth/logout");
-    clearPaymentBackendSticky();
     setUser(null);
     await refreshGuest();
   };
