@@ -10,6 +10,7 @@ const PREFERRED_API_BASE_KEY = "k2v_preferred_api_base";
 const SERVER_POOL_CACHE_MS = 0;
 let serverPoolCache: { urls: string[]; fetchedAt: number } | null = null;
 const LAST_GOOD_POOL_KEY = "k2v_last_good_backend_pool";
+// Lỗi hạ tầng/proxy (Cloudflare 52x/53x), timeout, rate limit... nên failover sang backend khác.
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const BACKEND_FAILURE_TTL_MS = 10 * 60_000;
 const FAILING_BACKENDS_STORAGE_KEY = "k2v_failing_backends";
@@ -257,6 +258,8 @@ async function parseErrorResponse(response: Response): Promise<Error> {
 }
 
 function shouldRetryResponse(response: Response): boolean {
+  // Mọi 5xx đều coi là lỗi server/proxy tạm thời -> thử backend khác.
+  if (response.status >= 500) return true;
   return RETRYABLE_STATUS_CODES.has(response.status);
 }
 

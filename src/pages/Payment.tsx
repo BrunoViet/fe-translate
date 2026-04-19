@@ -131,10 +131,11 @@ export default function Payment() {
     if (!orderCode) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/payment/check/${encodeURIComponent(orderCode)}`, {
-          credentials: "include",
-        });
-        if (r.status === 404) {
+        const c = await apiGet<{ status: string }>(
+          `/api/payment/check/${encodeURIComponent(orderCode)}`,
+        );
+        // API có thể trả 404 hoặc {"status":"not_found"} tùy instance; coi như không còn đơn.
+        if (!c || c.status === "not_found") {
           setOrderCode(null);
           setQr("");
           setStatus("");
@@ -142,8 +143,6 @@ export default function Payment() {
           loadHistory();
           return;
         }
-        if (!r.ok) return;
-        const c = (await r.json()) as { status: string };
         setStatus((prev) => {
           const next = c.status;
           if (prev !== next && (next === "approved" || next === "rejected")) {
@@ -152,8 +151,8 @@ export default function Payment() {
           }
           return next;
         });
-      } catch {
-        /* ignore */
+      } catch (e: unknown) {
+        // ignore network flaps; keep last known status
       }
     };
     tick();
