@@ -420,7 +420,7 @@ export default function Payment() {
               ) && status}
             </span>
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12, alignItems: "center", justifyContent: "center" }}>
             <button
               type="button"
               className="btn btn-primary btn-bounce"

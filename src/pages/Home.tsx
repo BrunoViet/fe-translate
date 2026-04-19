@@ -577,7 +577,14 @@ export default function Home() {
                     onClick={loadPreview}
                     disabled={previewLoading}
                   >
-                    {previewLoading ? "Đang tạo preview…" : "Xem trước 10 giây (video)"}
+                    {previewLoading ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        <span className="spinner sm" />
+                        Đang tạo preview…
+                      </span>
+                    ) : (
+                      "Xem trước 10 giây (video)"
+                    )}
                   </button>
                 </div>
                 {previewErr && <p className="error-msg">{previewErr}</p>}
@@ -603,7 +610,14 @@ export default function Home() {
                 starting || Boolean(est && !est.sufficient && !est.is_free_trial)
               }
             >
-              {starting ? "Đang gửi…" : "Bắt đầu dịch"}
+              {starting ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span className="spinner sm" />
+                  Đang gửi…
+                </span>
+              ) : (
+                "Bắt đầu dịch"
+              )}
             </button>
           </div>
         </div>
