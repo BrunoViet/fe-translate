@@ -280,9 +280,15 @@ async function fetchWithBackendFallback(
     return fetch(path, init);
   }
 
-  // Mobile đôi khi không lấy được ip.txt do mạng/DNS/captive portal.
-  // Với backend path mà pool rỗng thì không nên fallback gọi thẳng vào origin của frontend.
-  const pool = await getServerPoolUrls(true);
+  // Đa backend: ưu tiên lấy pool từ ip.txt (GitHub).
+  // Nhưng nếu pool không lấy được (mạng/captive portal/GitHub chặn) thì vẫn cần fallback
+  // về same-origin để hỗ trợ deploy kiểu Vercel rewrite/proxy.
+  let pool: string[] = [];
+  try {
+    pool = await getServerPoolUrls(true);
+  } catch {
+    pool = [];
+  }
   const orderedBases: string[] = [];
   const preferredBase = normalizeBaseUrl(options?.preferredBaseUrl || "");
   if (preferredBase) orderedBases.push(preferredBase);
@@ -296,7 +302,17 @@ async function fetchWithBackendFallback(
     if (!orderedBases.includes(base)) orderedBases.push(base);
   }
   if (orderedBases.length === 0) {
-    throw new Error("Không lấy được danh sách máy chủ backend (ip.txt). Hãy thử tải lại trang hoặc đổi mạng.");
+    // Fallback: gọi thẳng relative path (same-origin). Nếu bạn deploy có reverse proxy
+    // (ví dụ vercel.json) thì login/payment/logo vẫn chạy được.
+    try {
+      return await fetch(path, init);
+    } catch (e: unknown) {
+      throw new Error(
+        e instanceof Error
+          ? `Không kết nối được backend (pool rỗng + same-origin fail): ${e.message}`
+          : "Không kết nối được backend (pool rỗng + same-origin fail).",
+      );
+    }
   }
 
   let lastError: Error | null = null;
