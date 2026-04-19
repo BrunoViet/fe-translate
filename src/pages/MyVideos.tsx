@@ -231,7 +231,7 @@ export default function MyVideos() {
               controls
               autoPlay
               playsInline
-              src={watching.url}
+              src={`${apiBaseFromVideoUrl(watching.url) || ""}/api/video/watch/${encodeURIComponent(watching.task_id)}`}
               style={{ width: "100%", maxHeight: "75vh", borderRadius: 10, background: "#000" }}
             />
           </div>
