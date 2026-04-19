@@ -9,6 +9,7 @@ const PREFERRED_API_BASE_KEY = "k2v_preferred_api_base";
 /** 0 = luôn tải lại ip.txt từ GitHub (tránh cache URL backend cũ). */
 const SERVER_POOL_CACHE_MS = 0;
 let serverPoolCache: { urls: string[]; fetchedAt: number } | null = null;
+const LAST_GOOD_POOL_KEY = "k2v_last_good_backend_pool";
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const BACKEND_FAILURE_TTL_MS = 10 * 60_000;
 const FAILING_BACKENDS_STORAGE_KEY = "k2v_failing_backends";
@@ -111,6 +112,29 @@ function parseServerPoolUrls(text: string): string[] {
     .filter((value): value is string => Boolean(value));
 }
 
+function loadLastGoodPool(): string[] {
+  try {
+    const raw = localStorage.getItem(LAST_GOOD_POOL_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x) => (typeof x === "string" ? normalizeBaseUrl(x) : null))
+      .filter((x): x is string => Boolean(x));
+  } catch {
+    return [];
+  }
+}
+
+function saveLastGoodPool(urls: string[]): void {
+  try {
+    const uniq = Array.from(new Set(urls)).slice(0, 30);
+    if (uniq.length > 0) localStorage.setItem(LAST_GOOD_POOL_KEY, JSON.stringify(uniq));
+  } catch {
+    // ignore storage issues
+  }
+}
+
 async function fetchServerListText(): Promise<string> {
   const apiUrl = new URL(GITHUB_SERVER_LIST_API_URL);
   apiUrl.searchParams.set("_ts", String(Date.now()));
@@ -170,8 +194,14 @@ async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
     });
     const out = filtered.length > 0 ? filtered : Array.from(new Set(urls));
     serverPoolCache = { urls: out, fetchedAt: Date.now() };
+    saveLastGoodPool(out);
     return out;
   } catch {
+    const fallback = loadLastGoodPool();
+    if (fallback.length > 0) {
+      serverPoolCache = { urls: fallback, fetchedAt: Date.now() };
+      return fallback;
+    }
     return [];
   }
 }
@@ -250,7 +280,9 @@ async function fetchWithBackendFallback(
     return fetch(path, init);
   }
 
-  const pool = await getServerPoolUrls();
+  // Mobile đôi khi không lấy được ip.txt do mạng/DNS/captive portal.
+  // Với backend path mà pool rỗng thì không nên fallback gọi thẳng vào origin của frontend.
+  const pool = await getServerPoolUrls(true);
   const orderedBases: string[] = [];
   const preferredBase = normalizeBaseUrl(options?.preferredBaseUrl || "");
   if (preferredBase) orderedBases.push(preferredBase);
@@ -263,7 +295,9 @@ async function fetchWithBackendFallback(
   for (const base of pool) {
     if (!orderedBases.includes(base)) orderedBases.push(base);
   }
-  if (orderedBases.length === 0) orderedBases.push("");
+  if (orderedBases.length === 0) {
+    throw new Error("Không lấy được danh sách máy chủ backend (ip.txt). Hãy thử tải lại trang hoặc đổi mạng.");
+  }
 
   let lastError: Error | null = null;
   for (const baseUrl of orderedBases) {
