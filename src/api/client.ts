@@ -7,6 +7,8 @@ const TRANSLATE_LOAD_PATH = "/api/translate/load";
 const PAYMENT_LOAD_PATH = "/api/payment/load";
 const PREFERRED_API_BASE_KEY = "k2v_preferred_api_base";
 // Luôn lấy ip.txt mới nhất trước mỗi API call (không cache pool trong RAM).
+// Chế độ chặt chẽ: KHÔNG dùng pool cũ khi GitHub fetch fail (tránh gọi nhầm IP cũ).
+// Nếu cần fallback “last known good”, bật lại logic bằng cách tự sửa code.
 const LAST_GOOD_POOL_KEY = "k2v_last_good_backend_pool";
 // Lỗi hạ tầng/proxy (Cloudflare 52x/53x), timeout, rate limit... nên failover sang backend khác.
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -192,6 +194,27 @@ async function fetchServerListText(): Promise<string> {
   return response.text();
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchServerListTextWithRetry(): Promise<string> {
+  const attempts = 3;
+  const waitMs = 10_000;
+  let lastErr: unknown = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetchServerListText();
+    } catch (e: unknown) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        await sleep(waitMs);
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Không lấy được ip.txt từ GitHub.");
+}
+
 export function invalidateBackendPoolCache(): void {
   // no-op: giữ lại để tương thích call site
 }
@@ -204,7 +227,7 @@ export async function refreshBackendPoolFromGithub(): Promise<string[]> {
 async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
   // Chặt chẽ: luôn fetch ip.txt mới nhất (forceRefresh kept for API compatibility).
   try {
-    const text = await fetchServerListText();
+    const text = await fetchServerListTextWithRetry();
     const urls = parseServerPoolUrls(text);
     const now = Date.now();
     const filtered = Array.from(new Set(urls)).filter((url) => {
@@ -217,17 +240,12 @@ async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
       return true;
     });
     const out = filtered.length > 0 ? filtered : Array.from(new Set(urls));
+    // vẫn lưu để debug/khôi phục thủ công nếu cần, nhưng KHÔNG dùng làm fallback tự động
     saveLastGoodPool(out);
     pruneFailingBackendsAgainstPool(out);
     clearStickyApiBaseIfNotInPool(out);
     return out;
   } catch {
-    const fallback = loadLastGoodPool();
-    if (fallback.length > 0) {
-      pruneFailingBackendsAgainstPool(fallback);
-      clearStickyApiBaseIfNotInPool(fallback);
-      return fallback;
-    }
     return [];
   }
 }
