@@ -6,9 +6,7 @@ const GITHUB_SERVER_LIST_API_URL =
 const TRANSLATE_LOAD_PATH = "/api/translate/load";
 const PAYMENT_LOAD_PATH = "/api/payment/load";
 const PREFERRED_API_BASE_KEY = "k2v_preferred_api_base";
-/** 0 = luôn tải lại ip.txt từ GitHub (tránh cache URL backend cũ). */
-const SERVER_POOL_CACHE_MS = 0;
-let serverPoolCache: { urls: string[]; fetchedAt: number } | null = null;
+// Luôn lấy ip.txt mới nhất trước mỗi API call (không cache pool trong RAM).
 const LAST_GOOD_POOL_KEY = "k2v_last_good_backend_pool";
 // Lỗi hạ tầng/proxy (Cloudflare 52x/53x), timeout, rate limit... nên failover sang backend khác.
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -136,6 +134,33 @@ function saveLastGoodPool(urls: string[]): void {
   }
 }
 
+function pruneFailingBackendsAgainstPool(pool: string[]): void {
+  try {
+    const allowed = new Set(pool);
+    let changed = false;
+    for (const k of failingBackends.keys()) {
+      if (!allowed.has(k)) {
+        failingBackends.delete(k);
+        changed = true;
+      }
+    }
+    if (changed) persistFailingBackends();
+  } catch {
+    // ignore
+  }
+}
+
+function clearStickyApiBaseIfNotInPool(pool: string[]): void {
+  try {
+    const sticky = getStickyApiBase();
+    if (sticky && pool.length > 0 && !pool.includes(sticky)) {
+      sessionStorage.removeItem(PREFERRED_API_BASE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 async function fetchServerListText(): Promise<string> {
   const apiUrl = new URL(GITHUB_SERVER_LIST_API_URL);
   apiUrl.searchParams.set("_ts", String(Date.now()));
@@ -168,7 +193,7 @@ async function fetchServerListText(): Promise<string> {
 }
 
 export function invalidateBackendPoolCache(): void {
-  serverPoolCache = null;
+  // no-op: giữ lại để tương thích call site
 }
 
 export async function refreshBackendPoolFromGithub(): Promise<string[]> {
@@ -177,9 +202,7 @@ export async function refreshBackendPoolFromGithub(): Promise<string[]> {
 }
 
 async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
-  if (!forceRefresh && serverPoolCache && Date.now() - serverPoolCache.fetchedAt < SERVER_POOL_CACHE_MS) {
-    return serverPoolCache.urls;
-  }
+  // Chặt chẽ: luôn fetch ip.txt mới nhất (forceRefresh kept for API compatibility).
   try {
     const text = await fetchServerListText();
     const urls = parseServerPoolUrls(text);
@@ -194,13 +217,15 @@ async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
       return true;
     });
     const out = filtered.length > 0 ? filtered : Array.from(new Set(urls));
-    serverPoolCache = { urls: out, fetchedAt: Date.now() };
     saveLastGoodPool(out);
+    pruneFailingBackendsAgainstPool(out);
+    clearStickyApiBaseIfNotInPool(out);
     return out;
   } catch {
     const fallback = loadLastGoodPool();
     if (fallback.length > 0) {
-      serverPoolCache = { urls: fallback, fetchedAt: Date.now() };
+      pruneFailingBackendsAgainstPool(fallback);
+      clearStickyApiBaseIfNotInPool(fallback);
       return fallback;
     }
     return [];
@@ -294,7 +319,18 @@ async function fetchWithBackendFallback(
   }
   const orderedBases: string[] = [];
   const preferredBase = normalizeBaseUrl(options?.preferredBaseUrl || "");
-  if (preferredBase) orderedBases.push(preferredBase);
+  // Nếu preferredBase là IP/tunnel cũ không còn trong pool mới, bỏ qua để tránh call sai trước.
+  if (preferredBase) {
+    if (pool.length === 0 || pool.includes(preferredBase)) {
+      orderedBases.push(preferredBase);
+    } else {
+      try {
+        sessionStorage.removeItem(PREFERRED_API_BASE_KEY);
+      } catch {
+        // ignore
+      }
+    }
+  }
   if (isPrimaryServerPreferredPath(path)) {
     const primaryBase = pool[0] ?? "";
     if (primaryBase && !orderedBases.includes(primaryBase)) {
@@ -428,17 +464,17 @@ async function getTranslationPreferredBackend(path: string): Promise<string | nu
   }
   if (isStickyTranslatePath(path)) {
     const sticky = getStickyApiBase();
-    const urls = await getServerPoolUrls();
+    const urls = await getServerPoolUrls(true);
     if (sticky) {
       if (urls.length === 0 || urls.includes(sticky)) return sticky;
     }
     return urls[0] ?? null;
   }
   if (isPrimaryServerPreferredPath(path)) {
-    const urls = await getServerPoolUrls();
+    const urls = await getServerPoolUrls(true);
     return urls[0] ?? null;
   }
-  const urls = await getServerPoolUrls();
+  const urls = await getServerPoolUrls(true);
   return urls[0] ?? null;
 }
 
