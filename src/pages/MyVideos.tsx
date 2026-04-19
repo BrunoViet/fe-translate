@@ -39,6 +39,15 @@ export default function MyVideos() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [retentionH, setRetentionH] = useState(24);
+  const [watching, setWatching] = useState<RecentVideo | null>(null);
+  const apiBaseFromVideoUrl = (videoUrl: string): string | null => {
+    try {
+      const u = new URL(videoUrl);
+      return `${u.protocol}//${u.host}`;
+    } catch {
+      return null;
+    }
+  };
 
   const load = useCallback(async (off: number) => {
     setErr("");
@@ -128,10 +137,16 @@ export default function MyVideos() {
                     <td>
                       {v.url ? (
                         <>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ marginRight: 8 }}
+                            onClick={() => setWatching(v)}
+                          >
+                            Xem
+                          </button>
                           <a
-                            href={v.url}
-                            target="_blank"
-                            rel="noreferrer"
+                            href={`${apiBaseFromVideoUrl(v.url) || ""}/api/video/download/${encodeURIComponent(v.task_id)}`}
                             className="btn btn-ghost"
                             style={{ marginRight: 8 }}
                           >
@@ -185,6 +200,42 @@ export default function MyVideos() {
             </div>
           )}
         </>
+      )}
+
+      {watching?.url && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.62)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+            zIndex: 80,
+          }}
+          onClick={() => setWatching(null)}
+        >
+          <div
+            className="card card-lift"
+            style={{ width: "min(980px, 100%)", padding: 12 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, flex: 1 }}>{watching.name}</div>
+              <button type="button" className="btn btn-ghost" onClick={() => setWatching(null)}>
+                Đóng
+              </button>
+            </div>
+            <video
+              controls
+              autoPlay
+              playsInline
+              src={watching.url}
+              style={{ width: "100%", maxHeight: "75vh", borderRadius: 10, background: "#000" }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

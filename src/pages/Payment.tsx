@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { apiGet, apiPost } from "../api/client";
+import { apiGet, apiPost, apiPostForm } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
 
@@ -231,15 +231,7 @@ export default function Payment() {
     try {
       const form = new FormData();
       if (proofFile) form.append("proof", proofFile);
-      const res = await fetch(`/api/payment/confirm/${encodeURIComponent(orderCode)}`, {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(errFromBody(data) || res.statusText || "Lỗi");
-      }
+      await apiPostForm(`/api/payment/confirm/${encodeURIComponent(orderCode)}`, form);
       setStatus("waiting_approval");
       clearProof();
       void refreshAll();

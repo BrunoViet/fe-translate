@@ -335,6 +335,24 @@ async function requestJson<T>(
   return response.json() as Promise<T>;
 }
 
+export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+  const preferredBaseUrl = await getTranslationPreferredBackend(path);
+  const response = await fetchWithBackendFallback(
+    path,
+    {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    },
+    { preferredBaseUrl },
+  );
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+  if (response.status === 204) return {} as T;
+  return response.json() as Promise<T>;
+}
+
 async function getPreferredBackendByLoad(loadPath: string): Promise<string | null> {
   const urls = await getServerPoolUrls(true);
   if (urls.length === 0) return null;
