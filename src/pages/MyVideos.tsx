@@ -5,8 +5,6 @@ type RecentVideo = {
   name: string;
   url: string;
   task_id: string;
-  /** JWT ngắn hạn — xem/tải đúng máy giữ file, không phụ thuộc cookie trình duyệt cross-origin. */
-  playback_token?: string;
   size: string;
   date: string;
   expires_at?: string | null;
@@ -41,7 +39,6 @@ export default function MyVideos() {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [retentionH, setRetentionH] = useState(24);
-  const [watching, setWatching] = useState<RecentVideo | null>(null);
   const apiBaseFromVideoUrl = (videoUrl: string): string | null => {
     try {
       const u = new URL(videoUrl);
@@ -51,17 +48,9 @@ export default function MyVideos() {
     }
   };
 
-  const mediaWatchUrl = (v: RecentVideo): string => {
-    const base = apiBaseFromVideoUrl(v.url) || "";
-    const path = `${base}/api/video/watch/${encodeURIComponent(v.task_id)}`;
-    if (v.playback_token) return `${path}?t=${encodeURIComponent(v.playback_token)}`;
-    return path;
-  };
-
   const mediaDownloadUrl = (v: RecentVideo): string => {
     const base = apiBaseFromVideoUrl(v.url) || "";
     const path = `${base}/api/video/download/${encodeURIComponent(v.task_id)}`;
-    if (v.playback_token) return `${path}?t=${encodeURIComponent(v.playback_token)}`;
     return path;
   };
 
@@ -153,14 +142,6 @@ export default function MyVideos() {
                     <td>
                       {v.url ? (
                         <>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ marginRight: 8 }}
-                            onClick={() => setWatching(v)}
-                          >
-                            Xem
-                          </button>
                           <a
                             href={mediaDownloadUrl(v)}
                             className="btn btn-ghost"
@@ -216,42 +197,6 @@ export default function MyVideos() {
             </div>
           )}
         </>
-      )}
-
-      {watching?.url && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.62)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 12,
-            zIndex: 80,
-          }}
-          onClick={() => setWatching(null)}
-        >
-          <div
-            className="card card-lift"
-            style={{ width: "min(980px, 100%)", padding: 12 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-              <div style={{ fontWeight: 700, flex: 1 }}>{watching.name}</div>
-              <button type="button" className="btn btn-ghost" onClick={() => setWatching(null)}>
-                Đóng
-              </button>
-            </div>
-            <video
-              controls
-              autoPlay
-              playsInline
-              src={mediaWatchUrl(watching)}
-              style={{ width: "100%", maxHeight: "75vh", borderRadius: 10, background: "#000" }}
-            />
-          </div>
-        </div>
       )}
     </div>
   );
