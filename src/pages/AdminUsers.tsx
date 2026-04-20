@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../api/client";
+import { useToast } from "../context/ToastContext";
 
 type UserRow = {
   id: number;
@@ -14,6 +15,7 @@ type UserRow = {
 };
 
 export default function AdminUsers() {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
@@ -61,8 +63,9 @@ export default function AdminUsers() {
       await apiPatch(`/admin/api/users/${detail.id}`, { username: editName.trim() });
       await load();
       setDetail(null);
+      showToast("Đã lưu thay đổi.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi");
+      showToast(e instanceof Error ? e.message : "Lỗi", "warning");
     }
   }
 
@@ -74,8 +77,9 @@ export default function AdminUsers() {
       const fresh = await apiGet<{ user: UserRow }>(`/admin/api/users/${detail.id}`);
       setDetail(fresh.user);
       setEditName(fresh.user.username);
+      showToast("Đã cập nhật trạng thái.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi");
+      showToast(e instanceof Error ? e.message : "Lỗi", "warning");
     }
   }
 
@@ -85,7 +89,7 @@ export default function AdminUsers() {
     const sign = raw.startsWith("-") ? -1 : 1;
     const n = sign * parseInt(raw.replace(/^-/, ""), 10);
     if (Number.isNaN(n) || n === 0) {
-      alert("Nhập số tiền điều chỉnh (VND), có thể âm");
+      showToast("Nhập số tiền điều chỉnh (VND), có thể âm", "warning");
       return;
     }
     try {
@@ -98,8 +102,9 @@ export default function AdminUsers() {
       setDetail(fresh.user);
       setAdjustAmount("");
       setAdjustReason("");
+      showToast("Đã điều chỉnh số dư.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi");
+      showToast(e instanceof Error ? e.message : "Lỗi", "warning");
     }
   }
 
@@ -110,8 +115,9 @@ export default function AdminUsers() {
       await apiDelete(`/admin/api/users/${detail.id}`);
       setDetail(null);
       await load();
+      showToast("Đã xóa user.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi xóa");
+      showToast(e instanceof Error ? e.message : "Lỗi xóa", "warning");
     }
   }
 

@@ -2,24 +2,34 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function Login() {
   const { login, googleLogin } = useAuth();
+  const { showToast } = useToast();
   const nav = useNavigate();
   const [loginVal, setLoginVal] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const gid = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setErr("");
+    setSubmitting(true);
     try {
       await login(loginVal, password);
+      showToast("Đăng nhập thành công.", "success");
       nav("/");
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Đăng nhập thất bại");
+      const msg = e instanceof Error ? e.message : "Đăng nhập thất bại";
+      setErr(msg);
+      showToast(msg, "warning");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -50,22 +60,38 @@ export default function Login() {
             />
           </label>
           {err && <p className="error-msg">{err}</p>}
-          <button type="submit" className="btn btn-primary">
-            Đăng nhập
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? (
+              <>
+                <span className="spinner sm" /> Đang đăng nhập…
+              </>
+            ) : (
+              "Đăng nhập"
+            )}
           </button>
         </form>
         {gid && (
           <div style={{ marginTop: 20, display: "flex", justifyContent: "center" }}>
             <GoogleLogin
               onSuccess={async (c) => {
+                if (submitting) return;
                 try {
+                  setSubmitting(true);
                   if (c.credential) await googleLogin(c.credential);
+                  showToast("Đăng nhập Google thành công.", "success");
                   nav("/");
                 } catch (e: unknown) {
-                  setErr(e instanceof Error ? e.message : "Google lỗi");
+                  const msg = e instanceof Error ? e.message : "Đăng nhập Google thất bại";
+                  setErr(msg);
+                  showToast(msg, "warning");
+                } finally {
+                  setSubmitting(false);
                 }
               }}
-              onError={() => setErr("Đăng nhập Google thất bại")}
+              onError={() => {
+                setErr("Đăng nhập Google thất bại");
+                showToast("Đăng nhập Google thất bại", "warning");
+              }}
             />
           </div>
         )}

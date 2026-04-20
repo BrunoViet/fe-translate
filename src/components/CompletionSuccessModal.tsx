@@ -36,6 +36,7 @@ export default function CompletionSuccessModal() {
   const { showToast } = useToast();
   const [queue, setQueue] = useState<RecentRow[]>([]);
   const [modal, setModal] = useState<RecentRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const prevIdsRef = useRef<Set<string>>(new Set());
   const primedRef = useRef(false);
 
@@ -98,15 +99,20 @@ export default function CompletionSuccessModal() {
 
   async function handleDelete() {
     if (!modal?.url) return;
+    if (deleting) return;
     if (!confirm("Xóa video đã dịch khỏi máy chủ? Không thể hoàn tác.")) return;
+    setDeleting(true);
     try {
       await apiPost("/api/video/delete", {
         video_url: modal.url,
         task_id: modal.task_id,
       });
       setModal(null);
+      showToast("Đã xóa video trên server.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi");
+      showToast(e instanceof Error ? e.message : "Lỗi", "warning");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -146,8 +152,14 @@ export default function CompletionSuccessModal() {
               Tải xuống
             </a>
           ) : null}
-          <button type="button" className="btn btn-ghost" onClick={() => void handleDelete()}>
-            Xóa trên server
+          <button type="button" className="btn btn-ghost" onClick={() => void handleDelete()} disabled={deleting}>
+            {deleting ? (
+              <>
+                <span className="spinner sm" /> Đang xóa…
+              </>
+            ) : (
+              "Xóa trên server"
+            )}
           </button>
           <button type="button" className="btn btn-ghost" onClick={handleClose}>
             Đóng

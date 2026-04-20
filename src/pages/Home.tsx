@@ -8,6 +8,7 @@ import {
 import { apiGet, apiPost, apiPostForm, apiPostJob } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
+import { useToast } from "../context/ToastContext";
 import type { VideoHit } from "../types";
 import { formatRemainingVi } from "../utils/formatRemainingVi";
 
@@ -55,6 +56,7 @@ async function blobUrlToDataUrl(url: string): Promise<string> {
 export default function Home() {
   const { t } = useI18n();
   const { user, refreshGuest } = useAuth();
+  const { showToast } = useToast();
   const [q, setQ] = useState("");
   const [source, setSource] = useState("bilibili");
   const [stype, setStype] = useState<"video" | "channel">("video");
@@ -78,6 +80,13 @@ export default function Home() {
   const [localLogoDataUrl, setLocalLogoDataUrl] = useState<string | null>(null);
   const [savedLogoUrl, setSavedLogoUrl] = useState<string | null>(null);
   const [previewLayout, setPreviewLayout] = useState<"landscape" | "portrait">("landscape");
+  const effectiveLayout = (() => {
+    // Mặc định: douyin thường dọc, bilibili/youtube thường ngang.
+    // User vẫn có thể đổi thủ công bằng select "Khung xem trước".
+    if (!sel) return previewLayout;
+    if (source === "douyin") return previewLayout || "portrait";
+    return previewLayout || "landscape";
+  })();
 
   const [starting, setStarting] = useState(false);
   const [startErr, setStartErr] = useState("");
@@ -210,7 +219,7 @@ export default function Home() {
       );
       if (j?.logo_url) setSavedLogoUrl(j.logo_url);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Tải logo thất bại");
+      showToast(e instanceof Error ? e.message : "Tải logo thất bại", "warning");
       return;
     }
     const reader = new FileReader();
@@ -249,7 +258,7 @@ export default function Home() {
       ) {
         msg += ` Dự kiến còn ${formatRemainingVi(started.estimated_remaining_seconds)} nữa là xong.`;
       }
-      alert(msg);
+      showToast(msg, "success");
       void refreshGuest();
     } catch (e: unknown) {
       setStartErr(e instanceof Error ? e.message : "Không gửi được job");
@@ -371,6 +380,25 @@ export default function Home() {
               </button>
             </div>
             <p style={{ fontSize: 14, marginBottom: 6 }}>{sel.title}</p>
+            {!!sel.author?.trim() && (
+              <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 0, marginBottom: 6 }}>
+                Kênh:{" "}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ padding: "2px 8px", marginLeft: 6 }}
+                  onClick={() => {
+                    setQ(sel.author);
+                    setStype("channel");
+                    void search();
+                    showToast(`Đang tìm kênh: ${sel.author}`, "info");
+                  }}
+                  title="Bấm để tìm theo kênh"
+                >
+                  {sel.author}
+                </button>
+              </p>
+            )}
             <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 0 }}>
               Thời lượng gốc: <strong>{formatVideoDuration(sel)}</strong>
             </p>
@@ -534,8 +562,8 @@ export default function Home() {
                 <div
                   className="sub-preview-shell"
                   style={{
-                    aspectRatio: previewLayout === "landscape" ? "16 / 9" : "9 / 16",
-                    maxHeight: previewLayout === "landscape" ? 260 : 320,
+                    aspectRatio: effectiveLayout === "landscape" ? "16 / 9" : "9 / 16",
+                    maxHeight: effectiveLayout === "landscape" ? 260 : 320,
                     marginTop: 8,
                   }}
                 >
@@ -589,13 +617,25 @@ export default function Home() {
                 </div>
                 {previewErr && <p className="error-msg">{previewErr}</p>}
                 {previewUrl && (
-                  <video
-                    key={previewUrl}
-                    src={previewUrl}
-                    controls
-                    playsInline
-                    className="preview-video"
-                  />
+                  <div
+                    className="preview-video-wrap"
+                    style={{
+                      aspectRatio: effectiveLayout === "landscape" ? "16 / 9" : "9 / 16",
+                      marginTop: 12,
+                      borderRadius: 10,
+                      overflow: "hidden",
+                      background: "#000",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <video
+                      key={previewUrl}
+                      src={previewUrl}
+                      controls
+                      playsInline
+                      style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+                    />
+                  </div>
                 )}
               </div>
             </details>

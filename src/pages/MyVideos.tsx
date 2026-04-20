@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiPost } from "../api/client";
+import { useToast } from "../context/ToastContext";
 
 type RecentVideo = {
   name: string;
@@ -33,12 +34,14 @@ type RecentResponse = {
 const PAGE_SIZE = 24;
 
 export default function MyVideos() {
+  const { showToast } = useToast();
   const [items, setItems] = useState<RecentVideo[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [retentionH, setRetentionH] = useState(24);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const apiBaseFromVideoUrl = (videoUrl: string): string | null => {
     try {
       const u = new URL(videoUrl);
@@ -79,12 +82,18 @@ export default function MyVideos() {
 
   async function onDelete(v: RecentVideo) {
     if (!v.url) return;
+    if (deletingTaskId) return;
     if (!confirm("Xóa video đã dịch khỏi máy chủ? Không thể hoàn tác.")) return;
+    setDeletingTaskId(v.task_id);
     try {
       await apiPost("/api/video/delete", { video_url: v.url, task_id: v.task_id });
       await load(offset);
+      showToast("Đã xóa video trên server.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi");
+      showToast(e instanceof Error ? e.message : "Lỗi", "warning");
+    }
+    finally {
+      setDeletingTaskId(null);
     }
   }
 
@@ -153,8 +162,15 @@ export default function MyVideos() {
                             type="button"
                             className="btn btn-ghost"
                             onClick={() => void onDelete(v)}
+                            disabled={Boolean(deletingTaskId)}
                           >
-                            Xóa trên server
+                            {deletingTaskId === v.task_id ? (
+                              <>
+                                <span className="spinner sm" /> Đang xóa…
+                              </>
+                            ) : (
+                              "Xóa trên server"
+                            )}
                           </button>
                         </>
                       ) : (

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { apiGet, apiPost, apiPostForm } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
+import { useToast } from "../context/ToastContext";
 
 type Pkg = { id: string; amount_vnd: number; label: string };
 type Plan = {
@@ -47,6 +48,7 @@ function errFromBody(data: unknown): string {
 export default function Payment() {
   const { t } = useI18n();
   const { refresh, refreshGuest, user } = useAuth();
+  const { showToast } = useToast();
   const [searchParams] = useSearchParams();
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
@@ -62,6 +64,7 @@ export default function Payment() {
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [cancellingCode, setCancellingCode] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const refreshAll = useCallback(async () => {
     await refresh();
@@ -123,7 +126,7 @@ export default function Payment() {
       setStatus(o.status);
       clearProof();
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Không mở được đơn");
+      showToast(e instanceof Error ? e.message : "Không mở được đơn", "warning");
     }
   }
 
@@ -161,8 +164,9 @@ export default function Payment() {
   }, [orderCode, refreshAll, loadHistory]);
 
   async function createOrder() {
+    if (creating) return;
     if (mode === "subscription" && !user) {
-      alert("Đăng nhập để mua gói thành viên (tháng / năm).");
+      showToast("Đăng nhập để mua gói thành viên (tháng / năm).", "warning");
       return;
     }
     if (mode === "topup") {
@@ -171,6 +175,7 @@ export default function Payment() {
       if (!selPlan) return;
     }
     clearProof();
+    setCreating(true);
     try {
       const r = await apiPost<{
         order_code: string;
@@ -192,8 +197,11 @@ export default function Payment() {
       });
       setStatus("pending");
       loadHistory();
+      showToast("Đã tạo đơn. Vui lòng chuyển khoản theo QR.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi tạo đơn");
+      showToast(e instanceof Error ? e.message : "Lỗi tạo đơn", "warning");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -213,8 +221,9 @@ export default function Payment() {
       }
       await loadHistory();
       await refreshAll();
+      showToast("Đã hủy đơn.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Không hủy được đơn");
+      showToast(e instanceof Error ? e.message : "Không hủy được đơn", "warning");
     } finally {
       setCancellingCode(null);
     }
@@ -223,7 +232,7 @@ export default function Payment() {
   async function confirmPaid() {
     if (!orderCode || confirming) return;
     if (status !== "pending") {
-      alert('Chỉ bấm "Đã chuyển khoản" khi đơn đang ở trạng thái "Chờ CK".');
+      showToast('Chỉ bấm "Đã chuyển khoản" khi đơn đang ở trạng thái "Chờ CK".', "warning");
       return;
     }
     setConfirming(true);
@@ -235,8 +244,9 @@ export default function Payment() {
       clearProof();
       void refreshAll();
       loadHistory();
+      showToast("Đã gửi xác nhận chuyển khoản. Vui lòng chờ duyệt.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi");
+      showToast(e instanceof Error ? e.message : "Lỗi", "warning");
     } finally {
       setConfirming(false);
     }
@@ -361,8 +371,14 @@ export default function Payment() {
       )}
 
       {((mode === "topup" && sel) || (mode === "subscription" && selPlan)) && !orderCode && (
-        <button type="button" className="btn btn-primary btn-bounce" onClick={createOrder}>
-          Tạo mã thanh toán
+        <button type="button" className="btn btn-primary btn-bounce" onClick={createOrder} disabled={creating}>
+          {creating ? (
+            <>
+              <span className="spinner sm" /> Đang tạo…
+            </>
+          ) : (
+            "Tạo mã thanh toán"
+          )}
         </button>
       )}
 
@@ -427,7 +443,13 @@ export default function Payment() {
               onClick={confirmPaid}
               disabled={status !== "pending" || confirming}
             >
-              {confirming ? "Đang gửi…" : "Đã chuyển khoản"}
+              {confirming ? (
+                <>
+                  <span className="spinner sm" /> Đang gửi…
+                </>
+              ) : (
+                "Đã chuyển khoản"
+              )}
             </button>
             {status === "pending" && orderCode && !confirming && (
               <button
@@ -436,7 +458,13 @@ export default function Payment() {
                 disabled={!!cancellingCode}
                 onClick={() => void cancelOrder(orderCode)}
               >
-                {cancellingCode === orderCode ? "Đang hủy…" : "Hủy đơn"}
+                {cancellingCode === orderCode ? (
+                  <>
+                    <span className="spinner sm" /> Đang hủy…
+                  </>
+                ) : (
+                  "Hủy đơn"
+                )}
               </button>
             )}
           </div>

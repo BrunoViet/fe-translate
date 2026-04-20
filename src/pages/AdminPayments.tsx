@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiDelete, apiGet } from "../api/client";
+import { useToast } from "../context/ToastContext";
 
 type OrderRow = {
   id: number;
@@ -21,6 +22,7 @@ const STATUS_VI: Record<string, string> = {
 };
 
 export default function AdminPayments() {
+  const { showToast } = useToast();
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -56,8 +58,9 @@ export default function AdminPayments() {
     try {
       await apiDelete(`/admin/api/payments/${id}`);
       await load();
+      showToast("Đã xóa đơn.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Lỗi xóa");
+      showToast(e instanceof Error ? e.message : "Lỗi xóa", "warning");
     }
   }
 

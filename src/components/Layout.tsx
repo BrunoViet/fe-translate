@@ -294,7 +294,7 @@ export default function Layout() {
                         setSubDetailOpen(false);
                         await refresh();
                       } catch (e: unknown) {
-                        alert(e instanceof Error ? e.message : "Không hủy được gói");
+                        showToast(e instanceof Error ? e.message : "Không hủy được gói", "warning");
                       }
                     })();
                   }}

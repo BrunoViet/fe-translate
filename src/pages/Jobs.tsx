@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
 import { useI18n } from "../i18n/I18nContext";
+import { useToast } from "../context/ToastContext";
 
 type Task = {
   id: string;
@@ -43,8 +44,10 @@ function jobStatusKey(status: string): string {
 
 export default function Jobs() {
   const { t, locale } = useI18n();
+  const { showToast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [err, setErr] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const numLocale = locale === "en" ? "en-US" : "vi-VN";
 
@@ -66,50 +69,35 @@ export default function Jobs() {
   );
 
   async function cancel(id: string) {
+    if (busyId) return;
+    setBusyId(id);
     try {
       await apiPost(`/api/translate/cancel/${id}`);
       load();
+      showToast("Đã gửi yêu cầu hủy.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : t("common.error"));
+      showToast(e instanceof Error ? e.message : t("common.error"), "warning");
+    } finally {
+      setBusyId(null);
     }
   }
 
   async function deleteCompletedVideo(outputUrl: string, taskId: string) {
     if (!confirm(t("jobs.confirmDelete"))) return;
+    if (busyId) return;
+    setBusyId(taskId);
     try {
       await apiPost("/api/video/delete", { video_url: outputUrl, task_id: taskId });
       load();
+      showToast("Đã xóa video trên server.", "success");
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : t("common.error"));
+      showToast(e instanceof Error ? e.message : t("common.error"), "warning");
+    } finally {
+      setBusyId(null);
     }
   }
 
-  async function reconcileRefund(id: string) {
-    if (!confirm(t("jobs.confirmRefundStuck"))) return;
-    try {
-      const r = await apiPost<{
-        refunded_vnd?: number;
-        balance_vnd?: number;
-        message?: string;
-      }>(`/api/translate/reconcile/${id}`);
-      const msg =
-        r.message ||
-        t("jobs.refundResult", {
-          amount: (r.refunded_vnd ?? 0).toLocaleString(numLocale),
-          balance: (r.balance_vnd ?? 0).toLocaleString(numLocale),
-        });
-      alert(msg);
-      load();
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : t("common.error"));
-    }
-  }
-
-  function canReconcile(tk: Task): boolean {
-    if (!tk.cost_vnd || tk.cost_vnd <= 0) return false;
-    if (TERMINAL.has(String(tk.status || ""))) return false;
-    return true;
-  }
+  // Đã bỏ nút hoàn / hoàn tiền khi treo trên client theo yêu cầu.
 
   function isActiveJob(tk: Task): boolean {
     return !TERMINAL.has(String(tk.status || "")) && tk.status !== "completed";
@@ -173,8 +161,15 @@ export default function Jobs() {
                             type="button"
                             className="btn btn-ghost"
                             onClick={() => deleteCompletedVideo(tk.output_url!, tk.id)}
+                            disabled={busyId === tk.id}
                           >
-                            {t("jobs.deleteVideo")}
+                            {busyId === tk.id ? (
+                              <>
+                                <span className="spinner sm" /> {t("common.loading")}
+                              </>
+                            ) : (
+                              t("jobs.deleteVideo")
+                            )}
                           </button>
                         </>
                       ) : (
@@ -193,21 +188,18 @@ export default function Jobs() {
                             className="btn btn-ghost"
                             style={{ marginLeft: 8 }}
                             onClick={() => cancel(tk.id)}
+                            disabled={busyId === tk.id}
                           >
-                            {t("jobs.cancel")}
+                            {busyId === tk.id ? (
+                              <>
+                                <span className="spinner sm" /> {t("common.loading")}
+                              </>
+                            ) : (
+                              t("jobs.cancel")
+                            )}
                           </button>
                         )}
-                        {canReconcile(tk) && (
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ marginLeft: 8 }}
-                            title={t("jobs.confirmRefundStuck")}
-                            onClick={() => reconcileRefund(tk.id)}
-                          >
-                            {t("jobs.refundIfStuck")}
-                          </button>
-                        )}
+                        {/* Đã bỏ nút hoàn / hoàn tiền khi treo */}
                       </>
                     )}
                   </td>
