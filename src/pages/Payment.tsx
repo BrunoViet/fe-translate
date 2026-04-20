@@ -74,7 +74,24 @@ export default function Payment() {
   const loadHistory = useCallback(async () => {
     try {
       const d = await apiGet<{ orders: PayOrder[] }>("/api/payment/history?limit=30");
-      setHistory(d.orders || []);
+      const tz = "Asia/Ho_Chi_Minh";
+      const fmt = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      const todayKey = fmt.format(new Date());
+      const filtered = (d.orders || []).filter((o) => {
+        try {
+          if (!o.created_at) return false;
+          const key = fmt.format(new Date(o.created_at));
+          return key === todayKey;
+        } catch {
+          return false;
+        }
+      });
+      setHistory(filtered);
     } catch {
       setHistory([]);
     }

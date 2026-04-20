@@ -110,9 +110,6 @@ export default function Layout() {
           <NavLink to="/tasks" className={({ isActive }) => (isActive ? "active" : "")}>
             {t("nav.tasks")}
           </NavLink>
-          <NavLink to="/transactions" className={({ isActive }) => (isActive ? "active" : "")}>
-            {t("nav.transactions")}
-          </NavLink>
           <NavLink to="/support" className={({ isActive }) => (isActive ? "active" : "")}>
             {t("nav.support")}
           </NavLink>

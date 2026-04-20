@@ -48,6 +48,7 @@ export default function Jobs() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [err, setErr] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const numLocale = locale === "en" ? "en-US" : "vi-VN";
 
@@ -58,9 +59,23 @@ export default function Jobs() {
   };
 
   useEffect(() => {
-    load();
+    let cancelled = false;
+    setLoading(true);
+    apiGet<{ tasks: Task[] }>("/api/translate/status")
+      .then((d) => {
+        if (!cancelled) setTasks(d.tasks || []);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setErr(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     const id = setInterval(load, 5000);
-    return () => clearInterval(id);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   const statusLabel = useMemo(
@@ -117,6 +132,8 @@ export default function Jobs() {
         {t("jobs.refundNote")}
       </aside>
       {err && <p className="error-msg">{err}</p>}
+      {loading && <p style={{ color: "var(--muted)" }}>Đang tải…</p>}
+      {!loading && (
       <div className="card card-lift jobs-table-wrap">
         <table className="data jobs-responsive">
           <thead>
@@ -212,6 +229,7 @@ export default function Jobs() {
           <p style={{ color: "var(--muted)" }}>{t("jobs.empty")}</p>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -4,7 +4,6 @@ import { useI18n } from "./i18n/I18nContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import VerifyEmail from "./pages/VerifyEmail";
 import Home from "./pages/Home";
 import Jobs from "./pages/Jobs";
 import MyVideos from "./pages/MyVideos";
@@ -13,7 +12,6 @@ import Spin from "./pages/Spin";
 import Tasks from "./pages/Tasks";
 import Support from "./pages/Support";
 import Legal from "./pages/Legal";
-import Transactions from "./pages/Transactions";
 import Account from "./pages/Account";
 import AdminLayout from "./components/AdminLayout";
 import AdminPayments from "./pages/AdminPayments";
@@ -53,7 +51,6 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/verify" element={<VerifyEmail />} />
 
       <Route element={<Layout />}>
         <Route path="/" element={<Home />} />
@@ -75,14 +72,6 @@ export default function App() {
           element={
             <RequireLogin>
               <Tasks />
-            </RequireLogin>
-          }
-        />
-        <Route
-          path="/transactions"
-          element={
-            <RequireLogin>
-              <Transactions />
             </RequireLogin>
           }
         />

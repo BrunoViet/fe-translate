@@ -10,23 +10,11 @@ export default function Account() {
   const [nw, setNw] = useState("");
   const [msg, setMsg] = useState("");
 
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [vEmail, setVEmail] = useState("");
-  const [vCode, setVCode] = useState("");
-  const [vMsg, setVMsg] = useState("");
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [sendCooldown, setSendCooldown] = useState(0);
+  // Đã bỏ xác thực email theo yêu cầu.
 
   useEffect(() => {
-    if (user?.email) setVEmail(user.email);
-  }, [user?.email, verifyOpen]);
-
-  useEffect(() => {
-    if (sendCooldown <= 0) return;
-    const id = setInterval(() => setSendCooldown((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(id);
-  }, [sendCooldown]);
+    // keep hooks stable (không còn verify email)
+  }, []);
 
   async function changePw(e: React.FormEvent) {
     e.preventDefault();
@@ -45,50 +33,7 @@ export default function Account() {
     }
   }
 
-  async function sendCode() {
-    if (!user || sending || sendCooldown > 0) return;
-    setVMsg("");
-    setSending(true);
-    try {
-      await apiPost("/api/auth/email/send-code", { email: vEmail.trim().toLowerCase() });
-      setVMsg("Đã gửi mã. Kiểm tra hộp thư (và thư mục spam).");
-      setSendCooldown(60);
-    } catch (e: unknown) {
-      setVMsg(e instanceof Error ? e.message : "Không gửi được mã.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function submitCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user || verifying) return;
-    setVMsg("");
-    const code = vCode.replace(/\D/g, "").slice(0, 6);
-    if (code.length !== 6) {
-      setVMsg("Nhập đủ 6 chữ số.");
-      return;
-    }
-    setVerifying(true);
-    try {
-      const r = await apiPost<{ user: User }>("/api/auth/email/verify-code", {
-        email: vEmail.trim().toLowerCase(),
-        code,
-      });
-      if (r.user) {
-        await refresh();
-      } else {
-        await refresh();
-      }
-      setVerifyOpen(false);
-      setVCode("");
-      setVMsg("");
-    } catch (e: unknown) {
-      setVMsg(e instanceof Error ? e.message : "Mã không đúng hoặc đã hết hạn.");
-    } finally {
-      setVerifying(false);
-    }
-  }
+  void User;
 
   if (!user) return null;
 
@@ -109,19 +54,6 @@ export default function Account() {
           <strong>{user.username}</strong> ({user.email})
         </p>
         <p style={{ color: "var(--muted)" }}>Mã giới thiệu: {user.referral_code}</p>
-        <p>
-          Email:{" "}
-          {user.email_verified ? (
-            <span style={{ color: "var(--ok)" }}>Đã xác thực</span>
-          ) : (
-            <>
-              <span style={{ color: "var(--err)" }}>Chưa xác thực</span>{" "}
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setVerifyOpen(true)}>
-                Xác thực email
-              </button>
-            </>
-          )}
-        </p>
         <p>Số dư: {user.balance_vnd?.toLocaleString("vi-VN")}₫</p>
       </div>
 
@@ -157,75 +89,7 @@ export default function Account() {
         </p>
       </div>
 
-      {verifyOpen && (
-        <div
-          className="modal-overlay"
-          role="presentation"
-          onClick={() => !verifying && !sending && setVerifyOpen(false)}
-        >
-          <div
-            className="modal-box card-lift verify-email-modal"
-            role="dialog"
-            aria-labelledby="verify-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 id="verify-title" style={{ marginTop: 0 }}>
-              Xác thực email
-            </h3>
-            <p className="muted small">Nhập email đăng ký và mã 6 số gửi đến hộp thư.</p>
-            <form className="form-stack" onSubmit={submitCode}>
-              <label>
-                Email
-                <input
-                  type="email"
-                  autoComplete="email"
-                  value={vEmail}
-                  onChange={(e) => setVEmail(e.target.value)}
-                  required
-                  disabled={verifying}
-                />
-              </label>
-              <div className="verify-send-row">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  disabled={sending || verifying || sendCooldown > 0}
-                  onClick={() => void sendCode()}
-                >
-                  {sending ? "Đang gửi…" : sendCooldown > 0 ? `Gửi lại sau ${sendCooldown}s` : "Gửi mã"}
-                </button>
-              </div>
-              <label>
-                Mã xác thực (6 số)
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="\d{6}"
-                  maxLength={6}
-                  placeholder="••••••"
-                  value={vCode}
-                  onChange={(e) => setVCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  disabled={verifying}
-                  autoComplete="one-time-code"
-                />
-              </label>
-              {vMsg && (
-                <p className="small" style={{ color: vMsg.includes("Đã gửi") ? "var(--ok)" : "var(--err)" }}>
-                  {vMsg}
-                </p>
-              )}
-              <div className="verify-actions">
-                <button type="button" className="btn btn-ghost" disabled={verifying} onClick={() => setVerifyOpen(false)}>
-                  Đóng
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={verifying || vCode.replace(/\D/g, "").length !== 6}>
-                  {verifying ? "Đang xác nhận…" : "Xác nhận"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Đã bỏ xác thực email */}
     </div>
   );
 }

@@ -19,17 +19,20 @@ export default function Spin() {
   const [prizes, setPrizes] = useState<Prize[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initLoading, setInitLoading] = useState(true);
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const rotRef = useRef(0);
 
   const load = () => {
+    setInitLoading(true);
     apiGet<{ can_spin: boolean; prizes: Prize[] }>("/api/spin/status")
       .then((d) => {
         setCan(d.can_spin);
         setPrizes(d.prizes || []);
       })
       .catch(() => {});
+      .finally(() => setInitLoading(false));
   };
 
   useEffect(() => {
@@ -88,6 +91,7 @@ export default function Spin() {
       <h1 className="page-title-gradient">Vòng quay may mắn</h1>
       <p style={{ color: "var(--muted)" }}>Mỗi ngày một lượt — bấm QUAY để xem vòng quay dừng ở ô tương ứng.</p>
 
+      {initLoading && <p style={{ color: "var(--muted)" }}>Đang tải…</p>}
       <div className="spin-stage">
         <div className="spin-pointer" aria-hidden />
         <div
@@ -125,7 +129,7 @@ export default function Spin() {
         <button
           type="button"
           className="spin-center-btn"
-          disabled={!can || loading}
+          disabled={!can || loading || initLoading}
           onClick={spin}
         >
           {loading ? "…" : "QUAY"}
