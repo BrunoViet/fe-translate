@@ -5,6 +5,8 @@ type RecentVideo = {
   name: string;
   url: string;
   task_id: string;
+  /** JWT ngắn hạn — xem/tải đúng máy giữ file, không phụ thuộc cookie trình duyệt cross-origin. */
+  playback_token?: string;
   size: string;
   date: string;
   expires_at?: string | null;
@@ -47,6 +49,20 @@ export default function MyVideos() {
     } catch {
       return null;
     }
+  };
+
+  const mediaWatchUrl = (v: RecentVideo): string => {
+    const base = apiBaseFromVideoUrl(v.url) || "";
+    const path = `${base}/api/video/watch/${encodeURIComponent(v.task_id)}`;
+    if (v.playback_token) return `${path}?t=${encodeURIComponent(v.playback_token)}`;
+    return path;
+  };
+
+  const mediaDownloadUrl = (v: RecentVideo): string => {
+    const base = apiBaseFromVideoUrl(v.url) || "";
+    const path = `${base}/api/video/download/${encodeURIComponent(v.task_id)}`;
+    if (v.playback_token) return `${path}?t=${encodeURIComponent(v.playback_token)}`;
+    return path;
   };
 
   const load = useCallback(async (off: number) => {
@@ -146,7 +162,7 @@ export default function MyVideos() {
                             Xem
                           </button>
                           <a
-                            href={`${apiBaseFromVideoUrl(v.url) || ""}/api/video/download/${encodeURIComponent(v.task_id)}`}
+                            href={mediaDownloadUrl(v)}
                             className="btn btn-ghost"
                             style={{ marginRight: 8 }}
                           >
@@ -231,7 +247,7 @@ export default function MyVideos() {
               controls
               autoPlay
               playsInline
-              src={`${apiBaseFromVideoUrl(watching.url) || ""}/api/video/watch/${encodeURIComponent(watching.task_id)}`}
+              src={mediaWatchUrl(watching)}
               style={{ width: "100%", maxHeight: "75vh", borderRadius: 10, background: "#000" }}
             />
           </div>
