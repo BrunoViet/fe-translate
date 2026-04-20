@@ -5,6 +5,7 @@ import {
   type ChangeEvent,
   type CSSProperties,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost, apiPostForm, apiPostJob } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useI18n } from "../i18n/I18nContext";
@@ -55,6 +56,7 @@ async function blobUrlToDataUrl(url: string): Promise<string> {
 
 export default function Home() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { user, refreshGuest } = useAuth();
   const { showToast } = useToast();
   const [q, setQ] = useState("");
@@ -251,7 +253,7 @@ export default function Home() {
         channel_logo_data_url: logo.channel_logo_data_url,
       });
       setSel(null);
-      let msg = "Đã gửi job dịch. Xem mục Tiến trình.";
+      let msg = "Đã gửi job dịch — đang chuyển tới Tiến trình.";
       if (
         started?.estimated_remaining_seconds != null &&
         started.estimated_remaining_seconds >= 0
@@ -260,6 +262,7 @@ export default function Home() {
       }
       showToast(msg, "success");
       void refreshGuest();
+      navigate("/jobs", { replace: false });
     } catch (e: unknown) {
       setStartErr(e instanceof Error ? e.message : "Không gửi được job");
     } finally {
@@ -598,44 +601,48 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={loadPreview}
-                    disabled={previewLoading}
-                  >
-                    {previewLoading ? (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                        <span className="spinner sm" />
-                        Đang tạo preview…
-                      </span>
-                    ) : (
-                      "Xem trước 10 giây (video)"
+                {source !== "douyin" && (
+                  <>
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={loadPreview}
+                        disabled={previewLoading}
+                      >
+                        {previewLoading ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                            <span className="spinner sm" />
+                            Đang tạo preview…
+                          </span>
+                        ) : (
+                          "Xem trước 10 giây (video)"
+                        )}
+                      </button>
+                    </div>
+                    {previewErr && <p className="error-msg">{previewErr}</p>}
+                    {previewUrl && (
+                      <div
+                        className="preview-video-wrap"
+                        style={{
+                          aspectRatio: effectiveLayout === "landscape" ? "16 / 9" : "9 / 16",
+                          marginTop: 12,
+                          borderRadius: 10,
+                          overflow: "hidden",
+                          background: "#000",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <video
+                          key={previewUrl}
+                          src={previewUrl}
+                          controls
+                          playsInline
+                          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+                        />
+                      </div>
                     )}
-                  </button>
-                </div>
-                {previewErr && <p className="error-msg">{previewErr}</p>}
-                {previewUrl && (
-                  <div
-                    className="preview-video-wrap"
-                    style={{
-                      aspectRatio: effectiveLayout === "landscape" ? "16 / 9" : "9 / 16",
-                      marginTop: 12,
-                      borderRadius: 10,
-                      overflow: "hidden",
-                      background: "#000",
-                      border: "1px solid var(--border)",
-                    }}
-                  >
-                    <video
-                      key={previewUrl}
-                      src={previewUrl}
-                      controls
-                      playsInline
-                      style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-                    />
-                  </div>
+                  </>
                 )}
               </div>
             </details>
