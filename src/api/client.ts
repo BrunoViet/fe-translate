@@ -8,8 +8,7 @@ const PAYMENT_LOAD_PATH = "/api/payment/load";
 // Luôn lấy ip.txt mới nhất trước mỗi API call (không lưu cache IP cũ).
 // Lỗi hạ tầng/proxy (Cloudflare 52x/53x), timeout, rate limit... nên failover sang backend khác.
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
-const BACKEND_FAILURE_TTL_MS = 10 * 60_000;
-const failingBackends = new Map<string, number>();
+// KHÔNG lưu bất kỳ cache backend nào (kể cả in-memory) để tránh dính URL cũ.
 
 type ServerLoad = {
   active_job_count?: number;
@@ -81,22 +80,6 @@ function parseServerPoolUrls(text: string): string[] {
 
 // Không lưu "last known good pool" để tránh dùng lại IP cũ.
 
-function pruneFailingBackendsAgainstPool(pool: string[]): void {
-  try {
-    const allowed = new Set(pool);
-    let changed = false;
-    for (const k of failingBackends.keys()) {
-      if (!allowed.has(k)) {
-        failingBackends.delete(k);
-        changed = true;
-      }
-    }
-    void changed;
-  } catch {
-    // ignore
-  }
-}
-
 // Không dùng sticky base URL để tránh dính tunnel cũ.
 
 async function fetchServerListText(): Promise<string> {
@@ -162,21 +145,11 @@ export async function refreshBackendPoolFromGithub(): Promise<string[]> {
 
 async function getServerPoolUrls(forceRefresh = false): Promise<string[]> {
   // Chặt chẽ: luôn fetch ip.txt mới nhất (forceRefresh kept for API compatibility).
+  void forceRefresh;
   try {
     const text = await fetchServerListTextWithRetry();
     const urls = parseServerPoolUrls(text);
-    const now = Date.now();
-    const filtered = Array.from(new Set(urls)).filter((url) => {
-      const failedUntil = failingBackends.get(url) ?? 0;
-      if (failedUntil > now) return false;
-      if (failedUntil > 0) {
-        failingBackends.delete(url);
-      }
-      return true;
-    });
-    const out = filtered.length > 0 ? filtered : Array.from(new Set(urls));
-    pruneFailingBackendsAgainstPool(out);
-    return out;
+    return Array.from(new Set(urls));
   } catch {
     return [];
   }
@@ -205,14 +178,6 @@ function shouldRetryResponse(response: Response): boolean {
   // Mọi 5xx đều coi là lỗi server/proxy tạm thời -> thử backend khác.
   if (response.status >= 500) return true;
   return RETRYABLE_STATUS_CODES.has(response.status);
-}
-
-function markBackendFailure(baseUrl: string): void {
-  failingBackends.set(baseUrl, Date.now() + BACKEND_FAILURE_TTL_MS);
-}
-
-function clearBackendFailure(baseUrl: string): void {
-  failingBackends.delete(baseUrl);
 }
 
 async function fetchWithBackendFallback(
@@ -266,16 +231,11 @@ async function fetchWithBackendFallback(
     try {
       const response = await fetch(target, init);
       if (!response.ok && shouldRetryResponse(response)) {
-        if (baseUrl) markBackendFailure(baseUrl);
         lastError = await parseErrorResponse(response);
         continue;
       }
-      if (baseUrl && response.ok) {
-        clearBackendFailure(baseUrl);
-      }
       return response;
     } catch (error) {
-      if (baseUrl) markBackendFailure(baseUrl);
       lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
@@ -326,17 +286,14 @@ async function getPreferredBackendByLoad(loadPath: string): Promise<string | nul
           cache: "no-store",
         });
         if (!response.ok) {
-          if (shouldRetryResponse(response)) markBackendFailure(baseUrl);
           return null;
         }
         const data = (await response.json()) as ServerLoad;
         const activeJobCount = Number(data.active_job_count ?? Number.POSITIVE_INFINITY);
         if (!Number.isFinite(activeJobCount)) return null;
         const accepting = data.accepting_new_jobs !== false;
-        clearBackendFailure(baseUrl);
         return { baseUrl, index, activeJobCount, accepting };
       } catch {
-        markBackendFailure(baseUrl);
         return null;
       }
     }),
