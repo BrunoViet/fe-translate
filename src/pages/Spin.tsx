@@ -31,7 +31,7 @@ export default function Spin() {
         setCan(d.can_spin);
         setPrizes(d.prizes || []);
       })
-      .catch(() => {});
+      .catch(() => {})
       .finally(() => setInitLoading(false));
   };
 
