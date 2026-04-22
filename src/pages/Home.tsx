@@ -324,7 +324,10 @@ export default function Home() {
         {t("home.title")}
       </h1>
       <p style={{ color: "var(--muted)", marginBottom: 20 }}>
-        {t("home.subtitle")}
+        {t("home.subtitle")}{" "}
+        <span style={{ color: "var(--muted)" }}>
+          (Không nhập từ khóa thì hệ thống sẽ tự tìm các video đang thịnh hành trên nền tảng bạn chọn.)
+        </span>
       </p>
 
       <div

@@ -104,7 +104,7 @@ export default function Jobs() {
     try {
       await apiPost("/api/video/delete", { video_url: outputUrl, task_id: taskId });
       load();
-      showToast("Đã xóa video trên server.", "success");
+      showToast("Đã xóa video trên hệ thống.", "success");
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : t("common.error"), "warning");
     } finally {

@@ -19,7 +19,7 @@ export const vi = {
 
   "jobs.title": "Tiến trình dịch",
   "jobs.introBefore": "Tự làm mới mỗi 5 giây. Job đã dịch xong không còn ở đây — xem và tải tại ",
-  "jobs.introAfter": " (file tự xóa sau 24h trên server).",
+  "jobs.introAfter": " (file tự xóa sau 24h trên hệ thống).",
   "jobs.refundNote":
     "Hủy job: nếu tiến độ ≤50% — hoàn 100% phí đã trừ; nếu >50% — hoàn 50%. Hoàn tiền tự động khi treo lâu vẫn hoàn đủ phí đã trừ (theo hệ thống).",
   "jobs.colVideo": "Video",

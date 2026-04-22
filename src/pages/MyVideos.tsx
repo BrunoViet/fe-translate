@@ -88,7 +88,7 @@ export default function MyVideos() {
     try {
       await apiPost("/api/video/delete", { video_url: v.url, task_id: v.task_id });
       await load(offset);
-      showToast("Đã xóa video trên server.", "success");
+      showToast("Đã xóa video trên hệ thống.", "success");
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : "Lỗi", "warning");
     }
@@ -115,7 +115,7 @@ export default function MyVideos() {
         }}
       >
         <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: "var(--text)" }}>
-          <strong>Lưu ý:</strong> mỗi video sau khi dịch xong chỉ giữ trên server tối đa{" "}
+          <strong>Lưu ý:</strong> mỗi video sau khi dịch xong chỉ lưu trên hệ thống tối đa{" "}
           <strong>{retentionH} giờ</strong>. Hết thời hạn hệ thống tự xóa file — hãy tải về
           máy trước đó. Bạn cũng có thể xóa sớm bằng nút bên dưới.
         </p>
@@ -169,7 +169,7 @@ export default function MyVideos() {
                                 <span className="spinner sm" /> Đang xóa…
                               </>
                             ) : (
-                              "Xóa trên server"
+                              "Xóa khỏi hệ thống"
                             )}
                           </button>
                         </>
