@@ -71,6 +71,7 @@ export default function Home() {
   const [translator, setTranslator] = useState("google");
   const [targetLang, setTargetLang] = useState("vi");
   const [voice, setVoice] = useState("female");
+  const [generateVoice, setGenerateVoice] = useState(true);
   const [mirror, setMirror] = useState(true);
   const [vol, setVol] = useState(50);
   const [subSize, setSubSize] = useState(24);
@@ -266,6 +267,7 @@ export default function Home() {
         translator,
         target_lang: targetLang,
         voice,
+        generate_voice: generateVoice,
         speed: "+30%",
         mirror_video: mirror,
         original_audio_volume: vol,
@@ -487,6 +489,14 @@ export default function Home() {
                   <option value="en-female">English nữ</option>
                   <option value="en-male">English nam</option>
                 </select>
+              </label>
+              <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={generateVoice}
+                  onChange={(e) => setGenerateVoice(e.target.checked)}
+                />
+                Tạo giọng đọc (tắt để chỉ chèn phụ đề và giữ âm thanh gốc)
               </label>
               <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <input
