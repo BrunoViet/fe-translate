@@ -169,9 +169,30 @@ function buildTargetUrl(path: string, baseUrl: string | null): string {
   return path;
 }
 
-async function parseErrorResponse(response: Response): Promise<Error> {
-  const err = await response.json().catch(() => ({}));
-  return new Error(detailMsg(err) || response.statusText || `HTTP ${response.status}`);
+function friendlyHttpErrorMessage(status: number, path: string): string {
+  // Tuyệt đối không lộ raw error từ backend ra UI (tránh "Failed to fetch", traceback, v.v.)
+  if (status === 401) return "Bạn cần đăng nhập để thực hiện thao tác này.";
+  if (status === 403) return "Bạn không có quyền thực hiện thao tác này.";
+  if (status === 404) return "Không tìm thấy dữ liệu. Vui lòng thử lại.";
+  if (status === 408) return "Yêu cầu bị timeout. Vui lòng thử lại.";
+  if (status === 429) {
+    if (path === "/api/translate/start") {
+      return (
+        "Bạn đang có 1 video đang dịch. Hãy chờ dịch xong rồi gửi video mới, " +
+        "hoặc nạp gói tháng/năm để mở giới hạn dịch nhiều video cùng lúc."
+      );
+    }
+    return "Bạn thao tác quá nhanh. Vui lòng đợi một chút rồi thử lại.";
+  }
+  if (status === 402) return "Số dư không đủ. Vui lòng nạp thêm để tiếp tục.";
+  if (status >= 500) return "Hệ thống đang bận hoặc lỗi tạm thời. Vui lòng thử lại sau.";
+  return "Có lỗi xảy ra. Vui lòng thử lại.";
+}
+
+async function parseErrorResponse(response: Response, path: string): Promise<Error> {
+  // cố gắng đọc JSON để phục vụ debug nội bộ (không đưa ra message)
+  await response.json().catch(() => ({}));
+  return new Error(friendlyHttpErrorMessage(response.status, path));
 }
 
 function shouldRetryResponse(response: Response): boolean {
@@ -217,11 +238,9 @@ async function fetchWithBackendFallback(
     try {
       return await fetch(path, init);
     } catch (e: unknown) {
-      throw new Error(
-        e instanceof Error
-          ? `Không kết nối được backend (pool rỗng + same-origin fail): ${e.message}`
-          : "Không kết nối được backend (pool rỗng + same-origin fail).",
-      );
+      // Không lộ chi tiết "Failed to fetch" ra UI.
+      void e;
+      throw new Error("Không kết nối được máy chủ. Vui lòng kiểm tra mạng và thử lại.");
     }
   }
 
@@ -231,16 +250,18 @@ async function fetchWithBackendFallback(
     try {
       const response = await fetch(target, init);
       if (!response.ok && shouldRetryResponse(response)) {
-        lastError = await parseErrorResponse(response);
+        lastError = await parseErrorResponse(response, path);
         continue;
       }
       return response;
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      // Map lỗi mạng thành thông báo thân thiện (không lộ raw).
+      void error;
+      lastError = new Error("Không kết nối được máy chủ. Vui lòng thử lại sau.");
     }
   }
 
-  throw lastError || new Error("Khong the ket noi toi backend nao trong danh sach ip.txt.");
+  throw lastError || new Error("Không kết nối được máy chủ. Vui lòng thử lại sau.");
 }
 
 async function requestJson<T>(
@@ -250,7 +271,7 @@ async function requestJson<T>(
 ): Promise<T> {
   const response = await fetchWithBackendFallback(path, init, options);
   if (!response.ok) {
-    throw await parseErrorResponse(response);
+    throw await parseErrorResponse(response, path);
   }
   if (response.status === 204) return {} as T;
   return response.json() as Promise<T>;
@@ -268,7 +289,7 @@ export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
     { preferredBaseUrl },
   );
   if (!response.ok) {
-    throw await parseErrorResponse(response);
+    throw await parseErrorResponse(response, path);
   }
   if (response.status === 204) return {} as T;
   return response.json() as Promise<T>;
@@ -392,7 +413,7 @@ export async function apiPostJob<T>(path: string, body?: unknown): Promise<T> {
     { preferredBaseUrl },
   );
   if (!response.ok) {
-    throw await parseErrorResponse(response);
+    throw await parseErrorResponse(response, path);
   }
   if (response.status === 204) return {} as T;
   return (await response.json()) as T;

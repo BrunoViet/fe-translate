@@ -169,8 +169,32 @@ export default function Home() {
       const r = await apiPost<{ preview_url?: string }>("/api/video/preview", {
         video_id: sel.video_id,
       });
-      setPreviewUrl(r.preview_url || null);
-      if (!r.preview_url) setPreviewErr("Không nhận được URL preview.");
+      const url = r.preview_url || "";
+      if (!url) {
+        setPreviewErr("Không nhận được URL preview.");
+        return;
+      }
+
+      // Backend có thể trả URL trước khi file preview thật sự sẵn sàng.
+      // Giữ loading đến khi fetch được vài byte đầu.
+      const startedAt = Date.now();
+      const timeoutMs = 25_000;
+      while (true) {
+        try {
+          const probe = await fetch(url, {
+            method: "GET",
+            cache: "no-store",
+            headers: { Range: "bytes=0-1" },
+          });
+          if (probe.ok || probe.status === 206) break;
+        } catch {
+          // ignore
+        }
+        if (Date.now() - startedAt > timeoutMs) break;
+        await new Promise((res) => window.setTimeout(res, 700));
+      }
+
+      setPreviewUrl(url);
     } catch (e: unknown) {
       setPreviewUrl(null);
       setPreviewErr(e instanceof Error ? e.message : "Không tạo được preview");
@@ -488,7 +512,7 @@ export default function Home() {
                   Cỡ phụ đề
                   <input
                     type="range"
-                    min={14}
+                    min={8}
                     max={52}
                     value={subSize}
                     onChange={(e) => setSubSize(+e.target.value)}
@@ -566,7 +590,10 @@ export default function Home() {
                   className="sub-preview-shell"
                   style={{
                     aspectRatio: effectiveLayout === "landscape" ? "16 / 9" : "9 / 16",
-                    maxHeight: effectiveLayout === "landscape" ? 260 : 320,
+                    // Tránh phá tỉ lệ khi bị clamp chiều cao (maxHeight) → chuyển sang clamp maxWidth theo layout.
+                    maxWidth: effectiveLayout === "landscape" ? 560 : 260,
+                    marginLeft: "auto",
+                    marginRight: "auto",
                     marginTop: 8,
                   }}
                 >
@@ -627,6 +654,9 @@ export default function Home() {
                         style={{
                           aspectRatio: effectiveLayout === "landscape" ? "16 / 9" : "9 / 16",
                           marginTop: 12,
+                          maxWidth: effectiveLayout === "landscape" ? 560 : 260,
+                          marginLeft: "auto",
+                          marginRight: "auto",
                           borderRadius: 10,
                           overflow: "hidden",
                           background: "#000",
